@@ -1,0 +1,32 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    JARVIS_DATA_DIR=/var/data \
+    DATABASE_PATH=/var/data/operator.db \
+    JARVIS_CONFIG_PATH=/var/data/jarvis.env \
+    JARVIS_KEY_PATH=/var/data/jarvis.key \
+    JARVIS_SESSION_DB=/var/data/jarvis_sessions.db \
+    JARVIS_AGENT_POLL_SECONDS=12 \
+    JARVIS_AGENT_MAX_STEPS_PER_WAKE=4
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY jarvis_agent_release_v201.py .
+RUN echo "efa20c1857949135d56efbc3f72a3ebf475dc2a66552091c23be052968a998b7  jarvis_agent_release_v201.py" | sha256sum -c -
+RUN python jarvis_agent_release_v201.py
+RUN python -m compileall -q app
+
+# Hard build checks: fail rather than deploy the wrong runtime.
+RUN grep -q "ACTIVE_RELEASE_FILE = 'jarvis_agent_release_v201.py'" app/self_maintenance.py
+RUN grep -q "def storage_status" app/storage.py
+RUN grep -q "migrate_legacy_files" app/main.py
+RUN grep -q "storage_status()\['persistent'\]" app/deployment.py
+RUN grep -q "def run_objective" app/agent_runtime_v2.py
+RUN grep -q "/agent/command" app/agent_console.py
+RUN grep -q "knowledge_chunks" app/documents.py
+RUN grep -q "Marin" app/jarvis_dashboard.py
+
+CMD ["sh","-c","python -m app.seed_panther && uvicorn app.main:app --host 0.0.0.0 --port \8000"]
