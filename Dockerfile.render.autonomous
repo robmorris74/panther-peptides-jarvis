@@ -1,0 +1,14 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY jarvis_release_autonomous.py .
+RUN echo "7e4f3a73ffd6bd3406d4ec6d7aa1a005825bff557b8aa10cf2a47630defb564c  jarvis_release_autonomous.py" | sha256sum -c -
+RUN python jarvis_release_autonomous.py
+RUN python -m compileall -q app
+RUN grep -q "ACTIVE_RELEASE_FILE = 'jarvis_release_autonomous.py'" app/self_maintenance.py
+RUN grep -q "Autonomous Agent" app/jarvis_dashboard.py && grep -q "uploadChatFile" app/jarvis_dashboard.py
+RUN grep -q "JARVIS_DATA_DIR" app/db.py && grep -q "knowledge_chunks" app/documents.py
+RUN python -m app.seed_panther
+CMD ["sh","-c","uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
