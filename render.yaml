@@ -1,0 +1,63 @@
+services:
+  - type: web
+    name: panther-peptides-jarvis
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: false
+    disk:
+      name: jarvis-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_PATH
+        value: /app/data/operator.db
+      - key: JARVIS_SESSION_DB
+        value: /app/data/jarvis_sessions.db
+      - key: JARVIS_CONFIG_PATH
+        value: /app/data/jarvis.env
+      - key: JARVIS_SESSION_SECRET
+        generateValue: true
+      - key: JARVIS_BOOTSTRAP_TOKEN
+        generateValue: true
+      - key: JARVIS_COOKIE_SECURE
+        value: true
+      - key: JARVIS_ENV
+        value: production
+      # Optional after first deploy: set JARVIS_PUBLIC_URL to the final private HTTPS origin.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SHOPIFY_STORE_DOMAIN
+        sync: false
+      - key: SHOPIFY_ADMIN_TOKEN
+        sync: false
+      - key: SHOPIFY_CLIENT_ID
+        sync: false
+      - key: SHOPIFY_CLIENT_SECRET
+        sync: false
+      - key: SHOPIFY_WEBHOOK_SECRET
+        sync: false
+      - key: EASYPOST_API_KEY
+        sync: false
+      - key: SHIP_FROM_ADDRESS1
+        sync: false
+      - key: SHIP_FROM_CITY
+        sync: false
+      - key: SHIP_FROM_REGION
+        sync: false
+      - key: SHIP_FROM_POSTAL
+        sync: false
+      - key: OWNER_NOTIFICATION_EMAIL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: JARVIS_INBOUND_EMAIL_SECRET
+        sync: false
