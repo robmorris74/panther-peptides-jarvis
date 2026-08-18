@@ -1,0 +1,15 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY jarvis_release_v3.py .
+RUN echo "175deebdaabc6f84da9c15dbb49ecfeb9423aad435091225427b141cff9817b0  jarvis_release_v3.py" | sha256sum -c -
+RUN python jarvis_release_v3.py
+RUN test -f app/main.py && test -f app/jarvis_dashboard.py && test -f app/self_maintenance.py
+RUN grep -q "maintenance/status" app/main.py && grep -q "ACTIVE_RELEASE_FILE = 'jarvis_release_v3.py'" app/self_maintenance.py && grep -q "Marin" app/jarvis_dashboard.py && grep -q "previewVoice" app/jarvis_dashboard.py
+RUN python -m app.seed_panther
+
+CMD ["sh","-c","uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
