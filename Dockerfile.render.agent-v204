@@ -1,0 +1,26 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    JARVIS_DATA_DIR=/var/data \
+    DATABASE_PATH=/var/data/operator.db \
+    JARVIS_CONFIG_PATH=/var/data/jarvis.env \
+    JARVIS_KEY_PATH=/var/data/jarvis.key \
+    JARVIS_SESSION_DB=/var/data/jarvis_sessions.db \
+    JARVIS_AGENT_POLL_SECONDS=12 \
+    JARVIS_AGENT_MAX_STEPS_PER_WAKE=4
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY jarvis_agent_release_v204.py .
+RUN echo "b7017e2d758e099db0ebc915b28f1ffd8cab10ed12ac1709a83be1f245295534  jarvis_agent_release_v204.py" | sha256sum -c -
+RUN python jarvis_agent_release_v204.py
+RUN python -m compileall -q app jarvis_boot.py
+RUN grep -q "ACTIVE_RELEASE_FILE = 'jarvis_agent_release_v204.py'" app/self_maintenance.py
+RUN grep -q "/agent/v204/command" app/agent_console.py
+RUN grep -q "request_id" app/agent_console.py
+RUN grep -q "agent_command_receipts" app/agent_runtime_v2.py
+RUN grep -q "restart_in_seconds':20" app/self_maintenance.py
+RUN grep -q "Marin" app/agent_console.py
+CMD ["python", "jarvis_boot.py"]
