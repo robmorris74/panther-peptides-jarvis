@@ -1,0 +1,29 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    JARVIS_DATA_DIR=/var/data \
+    DATABASE_PATH=/var/data/operator.db \
+    JARVIS_CONFIG_PATH=/var/data/jarvis.env \
+    JARVIS_KEY_PATH=/var/data/jarvis.key \
+    JARVIS_SESSION_DB=/var/data/jarvis_sessions.db \
+    JARVIS_AGENT_POLL_SECONDS=12 \
+    JARVIS_AGENT_MAX_STEPS_PER_WAKE=4
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY jarvis_agent_release_v206.py .
+RUN echo "a6ef144453e424f1664de63ca74729199db67a34f42220afaf62aebb369a57c0  jarvis_agent_release_v206.py" | sha256sum -c -
+RUN python jarvis_agent_release_v206.py
+RUN python -m compileall -q app jarvis_boot.py
+RUN grep -q "CURRENT_RELEASE='206.0.0'" jarvis_boot.py
+RUN grep -q "quarantine_stale_overlay" jarvis_boot.py
+RUN grep -q "CURRENT_RELEASE = \"206.0.0\"" app/runtime_overlay.py
+RUN grep -q "ACTIVE_RELEASE_FILE = 'jarvis_agent_release_v206.py'" app/self_maintenance.py
+RUN grep -q "/agent/v206/command" app/agent_console.py
+RUN grep -q "v206</span>" app/agent_console.py
+RUN grep -q "X-Jarvis-Version']='206.0.0'" app/main.py
+RUN grep -q "version':'206.0.0'" app/main.py
+RUN grep -q "Marin" app/agent_console.py
+CMD ["python", "jarvis_boot.py"]
