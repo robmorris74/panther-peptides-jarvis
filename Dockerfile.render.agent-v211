@@ -1,0 +1,34 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    JARVIS_DATA_DIR=/var/data \
+    DATABASE_PATH=/var/data/operator.db \
+    JARVIS_CONFIG_PATH=/var/data/jarvis.env \
+    JARVIS_KEY_PATH=/var/data/jarvis.key \
+    JARVIS_SESSION_DB=/var/data/jarvis_sessions.db \
+    JARVIS_AGENT_POLL_SECONDS=12 \
+    JARVIS_AGENT_MAX_STEPS_PER_WAKE=1 \
+    JARVIS_SQLITE_BUSY_TIMEOUT_MS=60000 \
+    JARVIS_SQLITE_WRITE_RETRIES=12
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY jarvis_agent_release_v211.py .
+RUN echo "8c6f551e9fc1b4046419a5c81c2ebf368e80cbda23ad201a95c174aaa069a290  jarvis_agent_release_v211.py" | sha256sum -c -
+RUN python jarvis_agent_release_v211.py
+RUN python -m compileall -q app jarvis_boot.py
+RUN grep -Fq "CURRENT_RELEASE='211.0.0'" jarvis_boot.py
+RUN grep -Fq 'CURRENT_RELEASE = "211.0.0"' app/runtime_overlay.py
+RUN grep -Fq "ACTIVE_RELEASE_FILE = 'jarvis_agent_release_v211.py'" app/self_maintenance.py
+RUN grep -Fq '/agent/v211/command' app/agent_console.py
+RUN grep -Fq 'v211</span>' app/agent_console.py
+RUN grep -Fq "version='211.0.0'" app/main.py
+RUN grep -Fq "X-Jarvis-Version']='211.0.0'" app/main.py
+RUN grep -Fq 'def ensure_running' app/agent_runtime_v2.py
+RUN grep -Fq 'def recover_runtime' app/agent_runtime_v2.py
+RUN grep -Fq 'def _watchdog_loop' app/agent_runtime_v2.py
+RUN grep -Fq "_claim_due(1)" app/agent_runtime_v2.py
+RUN grep -Fq "Recovering agent" app/agent_console.py
+CMD ["python", "jarvis_boot.py"]
