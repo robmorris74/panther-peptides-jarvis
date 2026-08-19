@@ -1,0 +1,29 @@
+FROM python:3.12-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    JARVIS_DATA_DIR=/var/data \
+    DATABASE_PATH=/var/data/operator.db \
+    JARVIS_SESSION_SECRET_FILE=/var/data/jarvis220_session_secret \
+    JARVIS_MODEL=gpt-5-mini \
+    JARVIS_COOKIE_SECURE=1 \
+    JARVIS_MAX_STEPS=30
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir fastapi uvicorn python-multipart pypdf
+COPY jarvis_agent_release_v221.py .
+RUN echo "edec07356c9537c036039626b165a2ce48f32ed2294a2ba8e924b9b64b7307ea  jarvis_agent_release_v221.py" | sha256sum -c -
+RUN python jarvis_agent_release_v221.py
+RUN python -m compileall -q app221 jarvis_boot.py jarvis_v221_regression.py
+# Build-time regression gate: the image is rejected if the core runtime cannot boot,
+# authenticate, preserve sessions, serialize DB writes, expose health, or accept
+# idempotent objectives.
+RUN python jarvis_v221_regression.py
+RUN grep -Fq "VER='221.0.0'" app221/main.py
+RUN grep -Fq '/agent/v221/command' app221/main.py
+RUN grep -Fq 'jarvis221-supervisor' app221/agent.py
+RUN grep -Fq 'jarvis221-watchdog' app221/agent.py
+RUN grep -Fq 'journal_mode=WAL' app221/db.py
+RUN grep -Fq 'document.getElementById' app221/ui.py
+RUN grep -Fq '/client/bootstrap' app221/ui.py
+CMD ["python","jarvis_boot.py"]
