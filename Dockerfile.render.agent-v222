@@ -1,0 +1,28 @@
+FROM python:3.12-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    JARVIS_DATA_DIR=/var/data \
+    DATABASE_PATH=/var/data/operator.db \
+    JARVIS_SESSION_SECRET_FILE=/var/data/jarvis220_session_secret \
+    JARVIS_MODEL=gpt-5-mini \
+    JARVIS_COOKIE_SECURE=1 \
+    JARVIS_MAX_STEPS=30
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir fastapi uvicorn python-multipart pypdf
+COPY jarvis_agent_release_v222.py .
+RUN echo "a589bf7775382fed3ce5e53a569c636cbd8d00874e544c99a9b4fae091b04b84  jarvis_agent_release_v222.py" | sha256sum -c -
+RUN python jarvis_agent_release_v222.py
+RUN python -m compileall -q app222 jarvis_boot.py jarvis_v222_regression.py
+RUN python jarvis_v222_regression.py
+RUN grep -Fq "VER='222.0.0'" app222/main.py
+RUN grep -Fq '/agent/v222/command' app222/main.py
+RUN grep -Fq 'persistent_legacy_hash' app222/security.py
+RUN grep -Fq "company_settings WHERE key='owner_password_hash'" app222/security.py
+RUN grep -Fq 'jarvis222-supervisor' app222/agent.py
+RUN grep -Fq 'jarvis222-watchdog' app222/agent.py
+RUN grep -Fq 'journal_mode=WAL' app222/db.py
+RUN grep -Fq 'document.getElementById' app222/ui.py
+RUN grep -Fq '/client/bootstrap' app222/ui.py
+CMD ["python","jarvis_boot.py"]
