@@ -1,0 +1,35 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    JARVIS_DATA_DIR=/var/data \
+    DATABASE_PATH=/var/data/operator.db \
+    JARVIS_CONFIG_PATH=/var/data/jarvis.env \
+    JARVIS_KEY_PATH=/var/data/jarvis.key \
+    JARVIS_SESSION_DB=/var/data/jarvis_sessions.db \
+    JARVIS_AGENT_POLL_SECONDS=12 \
+    JARVIS_AGENT_MAX_STEPS_PER_WAKE=4 \
+    JARVIS_SQLITE_BUSY_TIMEOUT_MS=30000 \
+    JARVIS_SQLITE_WRITE_RETRIES=8
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY jarvis_agent_release_v208.py .
+RUN echo "b4ffdf09355fc0c68404973eb7031063de072eb538c53bb239248193c0057b10  jarvis_agent_release_v208.py" | sha256sum -c -
+RUN python jarvis_agent_release_v208.py
+RUN python -m compileall -q app jarvis_boot.py
+RUN grep -q "CURRENT_RELEASE='208.0.0'" jarvis_boot.py
+RUN grep -Fq 'CURRENT_RELEASE = "208.0.0"' app/runtime_overlay.py
+RUN grep -q "ACTIVE_RELEASE_FILE = 'jarvis_agent_release_v208.py'" app/self_maintenance.py
+RUN grep -q "/agent/v208/command" app/agent_console.py
+RUN grep -q "v208</span>" app/agent_console.py
+RUN grep -q "sync_environment_credentials" app/config_store.py
+RUN grep -q "self_maintenance_test_connections" app/jarvis.py
+RUN grep -q "_EXECUTION_LOCK" app/agent_runtime_v2.py
+RUN grep -q "cleanup_duplicate_objectives" app/agent_runtime_v2.py
+RUN grep -q "PRAGMA journal_mode=WAL" app/db.py
+RUN grep -q "PRAGMA busy_timeout" app/db.py
+RUN grep -q "X-Jarvis-Version']='208.0.0'" app/main.py
+RUN grep -q "Marin" app/agent_console.py
+CMD ["python", "jarvis_boot.py"]
