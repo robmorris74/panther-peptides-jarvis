@@ -1,0 +1,21 @@
+FROM python:3.12-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    JARVIS_DATA_DIR=/var/data \
+    DATABASE_PATH=/var/data/operator.db \
+    JARVIS_SESSION_SECRET_FILE=/var/data/jarvis220_session_secret \
+    JARVIS_MODEL=gpt-5-mini
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir fastapi uvicorn python-multipart
+COPY jarvis_agent_release_v220.py .
+RUN echo "51c55612c915ace6451bfca294256ac9656f399ed17ed1471c9faa3851ac4041  jarvis_agent_release_v220.py" | sha256sum -c -
+RUN python jarvis_agent_release_v220.py
+RUN python -m compileall -q app220 jarvis_boot.py
+RUN grep -Fq "VER='220.0.0'" app220/main.py
+RUN grep -Fq '/agent/v220/command' app220/main.py
+RUN grep -Fq 'jarvis220-supervisor' app220/agent.py
+RUN grep -Fq 'jarvis220-watchdog' app220/agent.py
+RUN grep -Fq 'journal_mode=WAL' app220/db.py
+RUN grep -Fq 'v220</span>' app220/ui.py
+CMD ["python","jarvis_boot.py"]
