@@ -1,0 +1,37 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    JARVIS_DATA_DIR=/var/data \
+    DATABASE_PATH=/var/data/operator.db \
+    JARVIS_CONFIG_PATH=/var/data/jarvis.env \
+    JARVIS_KEY_PATH=/var/data/jarvis.key \
+    JARVIS_SESSION_DB=/var/data/jarvis_sessions.db \
+    JARVIS_AGENT_POLL_SECONDS=12 \
+    JARVIS_AGENT_MAX_STEPS_PER_WAKE=1 \
+    JARVIS_SQLITE_BUSY_TIMEOUT_MS=60000 \
+    JARVIS_SQLITE_WRITE_RETRIES=12
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY jarvis_agent_release_v210.py .
+RUN echo "0074c3cdd7fefd55b07690ecf57126cdf13264104ef4601a7677010cf32de29b  jarvis_agent_release_v210.py" | sha256sum -c -
+RUN python jarvis_agent_release_v210.py
+RUN python -m compileall -q app jarvis_boot.py
+RUN grep -Fq "CURRENT_RELEASE='210.0.0'" jarvis_boot.py
+RUN grep -Fq 'CURRENT_RELEASE = "210.0.0"' app/runtime_overlay.py
+RUN grep -Fq "ACTIVE_RELEASE_FILE = 'jarvis_agent_release_v210.py'" app/self_maintenance.py
+RUN grep -Fq '/agent/v210/command' app/agent_console.py
+RUN grep -Fq 'v210</span>' app/agent_console.py
+RUN grep -Fq "version='210.0.0'" app/main.py
+RUN grep -Fq "X-Jarvis-Version']='210.0.0'" app/main.py
+RUN grep -Fq 'isolation_level=None' app/db.py
+RUN grep -Fq 'def configure_sqlite' app/db.py
+RUN grep -Fq 'sync_environment_credentials' app/config_store.py
+RUN grep -Fq '_normalize_connection_values' app/config_store.py
+RUN grep -Fq '_direct_system_answer' app/agent_runtime_v2.py
+RUN grep -Fq '_EXECUTION_LOCK' app/agent_runtime_v2.py
+RUN grep -Fq 'security_audit_fallback' app/security.py
+RUN grep -Fq 'Marin' app/agent_console.py
+CMD ["python", "jarvis_boot.py"]
