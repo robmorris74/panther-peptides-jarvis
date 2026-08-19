@@ -1,0 +1,25 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    JARVIS_DATA_DIR=/var/data \
+    DATABASE_PATH=/var/data/operator.db \
+    JARVIS_CONFIG_PATH=/var/data/jarvis.env \
+    JARVIS_KEY_PATH=/var/data/jarvis.key \
+    JARVIS_SESSION_DB=/var/data/jarvis_sessions.db \
+    JARVIS_AGENT_POLL_SECONDS=12 \
+    JARVIS_AGENT_MAX_STEPS_PER_WAKE=4
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY jarvis_agent_release_v205.py .
+RUN echo "36f56fc5918ac5ab488eac136c058cf73b467449439278c1fe780e9c276c3193  jarvis_agent_release_v205.py" | sha256sum -c -
+RUN python jarvis_agent_release_v205.py
+RUN python -m compileall -q app jarvis_boot.py
+RUN grep -q "ACTIVE_RELEASE_FILE = 'jarvis_agent_release_v205.py'" app/self_maintenance.py
+RUN grep -q "/agent/v205/command" app/agent_console.py
+RUN grep -q "_ensure_auth_schema" app/security.py
+RUN grep -q "X-Jarvis-Version']='205.0.0'" app/main.py
+RUN grep -q "Marin" app/agent_console.py
+CMD ["python", "jarvis_boot.py"]
