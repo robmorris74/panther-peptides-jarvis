@@ -7,16 +7,17 @@ from .db import init_db,execute,one
 from .security import verify_password,make_session,require_owner,COOKIE,valid_session,SESSION_TTL,password_source
 from .agent import start,status,create_objective,wake,model_status,_model_call
 from .integrations import test_connections
-from .business import ensure_business_schema,inventory_rows,dashboard_summary,import_legacy,save_document,review_document,release_inventory,events
+from .business import ensure_business_schema,inventory_rows,dashboard_summary,import_legacy,save_document,review_document,release_inventory,set_inventory_status,events
 from .ui import HTML
 from .business_ui import BUSINESS_HTML
-VER='225.0.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
+VER='225.1.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
 class Login(BaseModel):password:str
 class Cmd(BaseModel):text:str;request_id:str|None=None
 class ChatTurn(BaseModel):role:str;content:str
 class ChatReq(BaseModel):message:str;history:list[ChatTurn]=Field(default_factory=list)
 class TTSReq(BaseModel):text:str
 class ReviewReq(BaseModel):approved:bool
+class StatusReq(BaseModel):status:str
 @app.on_event('startup')
 def boot():init_db();ensure_business_schema();start()
 @app.middleware('http')
@@ -100,6 +101,11 @@ async def business_upload(inventory_id:int,req:Request,file:UploadFile=File(...)
 def business_review(doc_id:int,v:ReviewReq,req:Request):
     require_owner(req)
     try:return review_document(doc_id,v.approved)
+    except ValueError as e:raise HTTPException(400,str(e))
+@app.post('/business/inventory/{inventory_id}/status')
+def business_status(inventory_id:int,v:StatusReq,req:Request):
+    require_owner(req)
+    try:return set_inventory_status(inventory_id,v.status)
     except ValueError as e:raise HTTPException(400,str(e))
 @app.post('/business/inventory/{inventory_id}/release')
 def business_release(inventory_id:int,req:Request):
