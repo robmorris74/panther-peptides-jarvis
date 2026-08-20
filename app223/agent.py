@@ -8,7 +8,7 @@ def log(oid,event,detail='',level='info'):
  try:execute('INSERT INTO activity(objective_id,level,event,detail) VALUES(?,?,?,?)',(oid,level,event,str(detail)[:8000]))
  except Exception:pass
 def create_objective(text,priority=50):
- title=text.strip().split('\n')[0][:120];oid=execute('INSERT INTO objectives(title,detail,state,priority,max_steps) VALUES(?,?,?,?,?)',(title,text,'queued',priority,int(os.getenv('JARVIS_MAX_STEPS','30'))));log(oid,'objective_created',text);_wake.set();return oid
+ title=text.strip().split('\n')[0][:120];oid=execute('INSERT INTO objectives(title,detail,state,priority,max_steps) VALUES(?,?,?,?,?)',(title,text,'queued',priority,int(os.getenv('JARVIS_MAX_STEPS','45'))));log(oid,'objective_created',text);_wake.set();return oid
 def _models():
  raw=[os.getenv('JARVIS_MODEL','').strip(),os.getenv('JARVIS_MODEL_FALLBACK','gpt-5-mini').strip(),'gpt-5-mini'];out=[]
  for m in raw:
@@ -25,7 +25,7 @@ def _classify_http(code,body):
 def _chat_request(model,messages,tools=None,timeout=120):
  payload={'model':model,'messages':messages}
  if tools:payload['tools']=tools;payload['tool_choice']='auto'
- key=os.getenv('OPENAI_API_KEY','').strip();req=urllib.request.Request('https://api.openai.com/v1/chat/completions',data=json.dumps(payload).encode(),headers={'Authorization':f'Bearer {key}','Content-Type':'application/json','User-Agent':'Jarvis-v227'})
+ key=os.getenv('OPENAI_API_KEY','').strip();req=urllib.request.Request('https://api.openai.com/v1/chat/completions',data=json.dumps(payload).encode(),headers={'Authorization':f'Bearer {key}','Content-Type':'application/json','User-Agent':'Jarvis-v228'})
  with urllib.request.urlopen(req,timeout=timeout) as r:
   data=json.loads(r.read());m=data['choices'][0]['message'];return {'content':m.get('content') or '','tool_calls':m.get('tool_calls') or [],'model':data.get('model') or model}
 def _model_call(messages,tools=None):
@@ -56,15 +56,15 @@ def _claim():
  if not row:return None
  execute("UPDATE objectives SET state='planning',updated_at=CURRENT_TIMESTAMP WHERE id=? AND state='queued'",(row['id'],));return one('SELECT * FROM objectives WHERE id=?',(row['id'],))
 def _approval_context(oid):
- rows=execute("SELECT action,payload,status FROM approvals WHERE objective_id=? AND status IN ('approved','denied') ORDER BY id ASC",(oid,),True)
- if not rows:return ''
- return '\nOWNER DECISIONS ALREADY MADE FOR THIS OBJECTIVE:\n'+json.dumps(rows)[:12000]
+ rows=execute("SELECT id,action,payload,status FROM approvals WHERE objective_id=? AND status IN ('approved','denied') ORDER BY id ASC",(oid,),True)
+ return '' if not rows else '\nOWNER DECISIONS ALREADY MADE FOR THIS OBJECTIVE:\n'+json.dumps(rows)[:16000]
 def _queue_approval(oid,args):
  pending=one("SELECT * FROM approvals WHERE objective_id=? AND status='pending' ORDER BY id ASC LIMIT 1",(oid,))
  if pending:return pending['id']
- payload={'question':str(args.get('question') or 'Approve this action?')[:1000],'rationale':str(args.get('rationale') or '')[:3000],'estimated_cost':args.get('estimated_cost')}
- aid=execute('INSERT INTO approvals(objective_id,action,payload,status) VALUES(?,?,?,?)',(oid,str(args.get('action') or 'owner_decision')[:500],json.dumps(payload),'pending'))
- execute("UPDATE objectives SET state='awaiting_approval',blocked_reason='owner_approval',updated_at=CURRENT_TIMESTAMP WHERE id=?",(oid,));log(oid,'approval_requested',json.dumps({'approval_id':aid,**payload}));return aid
+ cost=args.get('estimated_cost')
+ if cost is not None and float(cost)>300:raise ValueError('Jarvis cannot request or execute a transaction above $300')
+ payload={'question':str(args.get('question') or 'Approve this action?')[:1000],'rationale':str(args.get('rationale') or '')[:3000],'estimated_cost':cost}
+ aid=execute('INSERT INTO approvals(objective_id,action,payload,status) VALUES(?,?,?,?)',(oid,str(args.get('action') or 'owner_decision')[:500],json.dumps(payload),'pending'));execute("UPDATE objectives SET state='awaiting_approval',blocked_reason='owner_approval',updated_at=CURRENT_TIMESTAMP WHERE id=?",(oid,));log(oid,'approval_requested',json.dumps({'approval_id':aid,**payload}));return aid
 def decide_approval(aid,approved):
  row=one("SELECT * FROM approvals WHERE id=? AND status='pending'",(aid,))
  if not row:raise ValueError('Pending approval not found')
@@ -76,9 +76,15 @@ def pending_approval():
  except:row['payload']={'question':row.get('payload') or 'Approve this action?'}
  return row
 def _run(oj):
- oid=oj['id'];_beat();system='''You are Jarvis v227, the persistent chief operating and strategy agent for Panther Peptides. Your job is to turn owner objectives into executable business strategy and then carry out every safe action available through your tools. Work autonomously: diagnose, research available knowledge, plan, prioritize, act, observe, verify, adapt, and continue until the objective is genuinely complete. Do not repeatedly ask the owner for information you can discover, infer safely, or postpone. Keep knowledge separate from authority. Never claim success without verification. When an owner decision is genuinely required, call request_owner_approval with exactly ONE concise yes/no question, the proposed action, rationale, and estimated cost when relevant. Stop immediately after creating that approval. Never bundle multiple questions into one approval. On resume, honor the recorded approval or denial and continue the strategy. External commitments, credential/security changes, irreversible/high-impact actions and spending require explicit approval unless a future authority policy explicitly authorizes them. Do not evade laws, platform controls, payment restrictions, or research-use-only requirements.'''
+ oid=oj['id'];_beat();system='''You are Jarvis v228, Panther Peptides' persistent chief operating, ecommerce, research and strategy agent. Your mandate is to get the lawful research-use business operational and commercially effective while protecting the owner from avoidable operational, financial and platform risk.
+
+KNOWLEDGE: Be exceptionally strong in general business, ecommerce strategy, merchandising, conversion, SEO, lifecycle marketing, analytics, pricing, unit economics, fulfillment, customer support, supplier management, inventory, software operations and the lawful research-peptide market. Understand grey-market dynamics as risk intelligence: platform/payment restrictions, advertising limitations, enforcement patterns, supplier and quality risk, reputation risk and competitive behaviour. Never provide or execute evasion, concealment, misrepresentation, human-use positioning, medical claims, regulatory circumvention or payment/platform bypasses. Products are FOR RESEARCH USE ONLY, NOT FOR HUMAN OR VETERINARY USE. Search internal knowledge aggressively before assuming Panther-specific facts.
+
+AUTHORITY: Knowledge never creates permission. Authority is a separate hard boundary. Work autonomously on reversible internal analysis, planning, code, dashboard, inventory operations already authorized by owner policy, and verification. External commitments, credential/security changes, irreversible/high-impact actions and EVERY spend require explicit owner approval. Spending is capped at $300 per transaction. Never split purchases to bypass the cap. After a matching owner approval, execute_approved_spend may be used only through the configured trusted purchase connector. If no connector exists, report that the spend is approved but not executed; never pretend money moved.
+
+OPERATING METHOD: Diagnose, search knowledge, plan, prioritize by launch impact, act with tools, observe, verify, adapt and continue. Prefer doing over asking. Ask exactly ONE concise blocking approval question only when genuinely required, then stop. On resume honor the recorded decision. Never claim success without verification. Focus on the shortest safe path to a working storefront, sellable inventory visibility, reliable checkout/fulfillment operations, compliant research-use positioning, launch analytics and measurable customer acquisition.'''
  messages=[{'role':'system','content':system+_approval_context(oid)},{'role':'user','content':oj['detail']}];execute("UPDATE objectives SET state='running',last_error=NULL,blocked_reason=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(oid,))
- for step in range(1,int(oj.get('max_steps') or 30)+1):
+ for step in range(1,int(oj.get('max_steps') or 45)+1):
   _beat();execute('UPDATE objectives SET step=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',(step,oid));log(oid,'cycle_started',f'cycle {step}')
   try:out=_model_call(messages,tool_specs())
   except Exception as e:
@@ -90,8 +96,12 @@ def _run(oj):
     except Exception:args={}
     name=tc['function']['name']
     if name=='request_owner_approval':
-     aid=_queue_approval(oid,args);messages.append({'role':'tool','tool_call_id':tc['id'],'content':json.dumps({'approval_id':aid,'status':'pending'})});return
-    try:result=run_tool(name,args);log(oid,'tool_result',json.dumps(result)[:6000])
+     try:aid=_queue_approval(oid,args)
+     except Exception as e:log(oid,'approval_error',str(e),'error');messages.append({'role':'tool','tool_call_id':tc['id'],'content':json.dumps({'error':str(e)})});continue
+     messages.append({'role':'tool','tool_call_id':tc['id'],'content':json.dumps({'approval_id':aid,'status':'pending'})});return
+    try:
+     if name=='execute_approved_spend':args['objective_id']=oid
+     result=run_tool(name,args);log(oid,'tool_result',json.dumps(result)[:6000])
     except Exception as e:result={'error':str(e)};log(oid,'tool_error',str(e),'error')
     messages.append({'role':'tool','tool_call_id':tc['id'],'content':json.dumps(result)})
    continue
@@ -111,13 +121,13 @@ def start():
  try:execute("UPDATE objectives SET state='queued',updated_at=CURRENT_TIMESTAMP WHERE state IN ('planning','running')")
  except Exception:pass
  _stop.clear();_beat()
- if not _thread or not _thread.is_alive():_thread=threading.Thread(target=_loop,name='jarvis227-supervisor',daemon=True);_thread.start()
+ if not _thread or not _thread.is_alive():_thread=threading.Thread(target=_loop,name='jarvis228-supervisor',daemon=True);_thread.start()
  if not _watchdog or not _watchdog.is_alive():
   def wd():
    global _thread
    while not _stop.wait(5):
-    if not _thread or not _thread.is_alive():_thread=threading.Thread(target=_loop,name='jarvis227-supervisor',daemon=True);_thread.start()
-  _watchdog=threading.Thread(target=wd,name='jarvis227-watchdog',daemon=True);_watchdog.start()
+    if not _thread or not _thread.is_alive():_thread=threading.Thread(target=_loop,name='jarvis228-supervisor',daemon=True);_thread.start()
+  _watchdog=threading.Thread(target=wd,name='jarvis228-watchdog',daemon=True);_watchdog.start()
 def wake():_wake.set();return status()
 def status():
  try:q=one("SELECT COUNT(*) n FROM objectives WHERE state='queued'")['n'];r=one("SELECT COUNT(*) n FROM objectives WHERE state IN ('planning','running')")['n'];b=one("SELECT COUNT(*) n FROM objectives WHERE state='blocked'")['n'];a=one("SELECT COUNT(*) n FROM objectives WHERE state='awaiting_approval'")['n'];c=one("SELECT COUNT(*) n FROM objectives WHERE state='completed'")['n'];db_ok=True
