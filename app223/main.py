@@ -13,7 +13,7 @@ from .authority import ensure_authority_schema,status as authority_status,spend_
 from .ramp import status as ramp_status,list_virtual_cards
 from .ui_nav import HTML
 from .business_ui import BUSINESS_HTML
-VER='228.2.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
+VER='228.3.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
 class Login(BaseModel):password:str
 class Cmd(BaseModel):text:str;request_id:str|None=None
 class ChatTurn(BaseModel):role:str;content:str
