@@ -9,19 +9,16 @@ from .agent import start,status,create_objective,wake,model_status,_model_call
 from .integrations import test_connections
 from .business import ensure_business_schema,inventory_rows,dashboard_summary,import_legacy,save_document,review_document,release_inventory,events
 from .ui import HTML
-
-VER='225.0.0'
-DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'))
-app=FastAPI(title='Jarvis',version=VER)
-class Login(BaseModel): password:str
-class Cmd(BaseModel): text:str; request_id:str|None=None
-class ChatTurn(BaseModel): role:str; content:str
-class ChatReq(BaseModel): message:str; history:list[ChatTurn]=Field(default_factory=list)
-class TTSReq(BaseModel): text:str
-class ReviewReq(BaseModel): approved:bool
-
+from .business_ui import BUSINESS_HTML
+VER='225.0.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
+class Login(BaseModel):password:str
+class Cmd(BaseModel):text:str;request_id:str|None=None
+class ChatTurn(BaseModel):role:str;content:str
+class ChatReq(BaseModel):message:str;history:list[ChatTurn]=Field(default_factory=list)
+class TTSReq(BaseModel):text:str
+class ReviewReq(BaseModel):approved:bool
 @app.on_event('startup')
-def boot(): init_db(); ensure_business_schema(); start()
+def boot():init_db();ensure_business_schema();start()
 @app.middleware('http')
 async def headers(req,call_next):
     try:r=await call_next(req)
@@ -34,8 +31,10 @@ def ready():
     s=status();persistent=DATA.exists() and os.access(DATA,os.W_OK);ok=s['database_ok'] and persistent and s['worker_alive'] and s['watchdog_alive'];return JSONResponse({'ok':ok,'version':VER,'persistent':persistent,**s},status_code=200 if ok else 503)
 @app.get('/',response_class=HTMLResponse)
 def home():return HTML
+@app.get('/dashboard',response_class=HTMLResponse)
+def dashboard_page():return BUSINESS_HTML
 @app.get('/client/bootstrap')
-def bootstrap(req:Request):return {'ok':True,'version':VER,'authenticated':valid_session(req.cookies.get(COOKIE,'')),'runtime':status(),'owner_auth_source':password_source(),'wake_word':'jarvis','voice':'British male'}
+def bootstrap(req:Request):return {'ok':True,'version':VER,'authenticated':valid_session(req.cookies.get(COOKIE,'')),'runtime':status(),'owner_auth_source':password_source(),'wake_word':'jarvis','voice':'British male','dashboard':'/dashboard'}
 @app.post('/auth/login')
 def login(v:Login):
     if not verify_password(v.password):raise HTTPException(401,'Invalid owner password')
@@ -62,9 +61,7 @@ def command(v:Cmd,req:Request):
 def assistant_message(v:ChatReq,req:Request):
     require_owner(req);text=v.message.strip()
     if not text:raise HTTPException(400,'Empty message')
-    history=[{'role':t.role,'content':t.content[:4000]} for t in v.history[-12:] if t.role in ('user','assistant') and t.content.strip()]
-    system='You are Jarvis, the owner-facing AI operating agent for Panther Peptides. Communicate naturally, calmly, confidently, and concisely, using British English wording where natural. Never falsely claim an action was performed. Panther Peptides products are FOR RESEARCH USE ONLY, NOT FOR HUMAN OR VETERINARY USE.'
-    out=_model_call([{'role':'system','content':system},*history,{'role':'user','content':text}]);return {'ok':True,'reply':(out.get('content') or '').strip(),'model':out.get('model')}
+    history=[{'role':t.role,'content':t.content[:4000]} for t in v.history[-12:] if t.role in ('user','assistant') and t.content.strip()];system='You are Jarvis, the owner-facing AI operating agent for Panther Peptides. Communicate naturally, calmly, confidently, and concisely, using British English wording where natural. Never falsely claim an action was performed. Panther Peptides products are FOR RESEARCH USE ONLY, NOT FOR HUMAN OR VETERINARY USE.';out=_model_call([{'role':'system','content':system},*history,{'role':'user','content':text}]);return {'ok':True,'reply':(out.get('content') or '').strip(),'model':out.get('model')}
 def _spoken_version(text):
     clean=re.sub(r'```.*?```','',text,flags=re.S);clean=re.sub(r'[`*_#>|]','',clean);clean=re.sub(r'\s+',' ',clean).strip()
     if not clean:return 'Done.'
@@ -78,8 +75,7 @@ def tts(v:TTSReq,req:Request):
     require_owner(req);spoken=_spoken_version(v.text.strip());key=os.getenv('OPENAI_API_KEY','').strip()
     if not key:raise HTTPException(503,'OPENAI_API_KEY is not configured')
     payload={'model':os.getenv('JARVIS_TTS_MODEL','gpt-4o-mini-tts'),'voice':os.getenv('JARVIS_TTS_VOICE','onyx'),'input':spoken,'response_format':'mp3','instructions':os.getenv('JARVIS_TTS_INSTRUCTIONS','Adult British male voice. Polished modern received-pronunciation English accent, lower male register, calm and assured, warm but restrained, articulate and intelligent. Never feminine, high-pitched, robotic, announcer-like, or American.')}
-    try:
-        q=urllib.request.Request('https://api.openai.com/v1/audio/speech',data=json.dumps(payload).encode(),headers={'Authorization':f'Bearer {key}','Content-Type':'application/json','User-Agent':'Jarvis-v225'});audio=urllib.request.urlopen(q,timeout=90).read();return Response(content=audio,media_type='audio/mpeg',headers={'Cache-Control':'no-store','X-Jarvis-Voice':'British-male'})
+    try:q=urllib.request.Request('https://api.openai.com/v1/audio/speech',data=json.dumps(payload).encode(),headers={'Authorization':f'Bearer {key}','Content-Type':'application/json','User-Agent':'Jarvis-v225'});audio=urllib.request.urlopen(q,timeout=90).read();return Response(content=audio,media_type='audio/mpeg')
     except urllib.error.HTTPError as e:raise HTTPException(e.code if e.code<500 else 502,'TTS provider error: '+e.read().decode('utf-8','replace')[:1600])
     except Exception as e:raise HTTPException(502,'TTS transport error: '+str(e)[:800])
 @app.post('/connections/test')
@@ -89,11 +85,8 @@ def model_test(req:Request):require_owner(req);return model_status(True)
 @app.get('/launch/readiness')
 def readiness(req:Request):
     require_owner(req);s=status();c=test_connections();checks={'worker':s['worker_alive'],'watchdog':s['watchdog_alive'],'database':s['database_ok'],'persistent':DATA.exists() and os.access(DATA,os.W_OK),'github':c['github']['connected'],'render':c['render']['connected'],'openai':model_status(False)['configured']};return {'ok':all(checks.values()),'version':VER,'checks':checks,'connections':c,'status':s}
-
-# Panther Peptides Business Command Center
 @app.get('/business/dashboard')
-def business_dashboard(req:Request):
-    require_owner(req);return {'ok':True,'summary':dashboard_summary(),'inventory':inventory_rows(),'events':events(),'objectives':execute('SELECT * FROM objectives ORDER BY id DESC LIMIT 30',fetch=True),'activity':execute('SELECT * FROM activity ORDER BY id DESC LIMIT 60',fetch=True)}
+def business_dashboard(req:Request):require_owner(req);return {'ok':True,'summary':dashboard_summary(),'inventory':inventory_rows(),'events':events(),'objectives':execute('SELECT * FROM objectives ORDER BY id DESC LIMIT 30',fetch=True),'activity':execute('SELECT * FROM activity ORDER BY id DESC LIMIT 60',fetch=True)}
 @app.get('/business/inventory')
 def business_inventory(req:Request):require_owner(req);return {'ok':True,'items':inventory_rows(),'summary':dashboard_summary()}
 @app.post('/business/inventory/import-legacy')
