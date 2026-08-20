@@ -8,7 +8,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     JARVIS_MODEL=gpt-5-mini \
     JARVIS_MODEL_FALLBACK=gpt-5-mini \
     JARVIS_TTS_MODEL=gpt-4o-mini-tts \
-    JARVIS_TTS_VOICE=marin \
+    JARVIS_TTS_VOICE=onyx \
+    JARVIS_TTS_INSTRUCTIONS="Adult British male voice. Polished modern received-pronunciation English accent, lower male register, calm and assured, warm but restrained, articulate, intelligent personal aide. Natural conversational cadence with subtle dry confidence. Never feminine, never high-pitched, never robotic, never announcer-like. Do not sound American." \
     JARVIS_COOKIE_SECURE=1 \
     JARVIS_MAX_STEPS=30
 COPY requirements.txt .
@@ -19,9 +20,11 @@ RUN python -m compileall -q app223 jarvis_boot.py
 RUN grep -Fq "VER='224.0.0'" app223/main.py
 RUN grep -Fq '/assistant/message' app223/main.py
 RUN grep -Fq '/voice/tts' app223/main.py
+RUN grep -Fq 'British male' app223/main.py
+RUN grep -Fq "JARVIS_TTS_VOICE','onyx" app223/main.py
+RUN grep -Fq '_spoken_version' app223/main.py
 RUN grep -Fq 'SpeechRecognition' app223/ui.py
 RUN grep -Fq 'Wake word armed' app223/ui.py
-RUN grep -Fq 'British voice' app223/ui.py
 RUN grep -Fq '/agent/v223/command' app223/main.py
 RUN grep -Fq '/model/test' app223/main.py
 RUN ! grep -Fq "'temperature'" app223/agent.py
