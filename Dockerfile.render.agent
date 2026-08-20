@@ -1,14 +1,21 @@
 FROM python:3.12-slim
 WORKDIR /app
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 JARVIS_DATA_DIR=/var/data DATABASE_PATH=/var/data/operator.db JARVIS_SESSION_SECRET_FILE=/var/data/jarvis_session_secret JARVIS_MODEL=gpt-5-mini JARVIS_MODEL_FALLBACK=gpt-5-mini JARVIS_TTS_MODEL=gpt-4o-mini-tts JARVIS_TTS_VOICE=onyx JARVIS_COOKIE_SECURE=1 JARVIS_MAX_STEPS=30
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 JARVIS_DATA_DIR=/var/data DATABASE_PATH=/var/data/operator.db JARVIS_SESSION_SECRET_FILE=/var/data/jarvis_session_secret JARVIS_MODEL=gpt-5-mini JARVIS_MODEL_FALLBACK=gpt-5-mini JARVIS_TTS_MODEL=gpt-4o-mini-tts JARVIS_TTS_VOICE=onyx JARVIS_COOKIE_SECURE=1 JARVIS_MAX_STEPS=45 JARVIS_MAX_APPROVED_SPEND=300
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir fastapi uvicorn python-multipart pypdf
 COPY app223 ./app223
 COPY jarvis_boot.py ./jarvis_boot.py
 RUN python -m compileall -q app223 jarvis_boot.py
-RUN grep -Fq "VER='227.0.0'" app223/main.py
+RUN grep -Fq "VER='228.0.0'" app223/main.py
+RUN grep -Fq 'ensure_authority_schema' app223/main.py
+RUN grep -Fq '/agent/authority' app223/main.py
+RUN grep -Fq 'execute_approved_spend' app223/tools.py
+RUN grep -Fq 'maximum' app223/tools.py
+RUN grep -Fq 'MAX_SPEND' app223/authority.py
+RUN grep -Fq 'payment_connector_not_configured' app223/authority.py
+RUN grep -Fq 'Knowledge never creates permission' app223/agent.py
+RUN grep -Fq 'jarvis228-supervisor' app223/agent.py
 RUN grep -Fq '/agent/approval' app223/main.py
-RUN grep -Fq 'request_owner_approval' app223/tools.py
 RUN grep -Fq 'awaiting_approval' app223/agent.py
 RUN grep -Fq 'APPROVE' app223/business_ui.py
 RUN grep -Fq 'DENY' app223/business_ui.py
@@ -19,6 +26,5 @@ RUN grep -Fq 'FOR RESEARCH USE ONLY' app223/main.py
 RUN grep -Fq 'SpeechRecognition' app223/ui.py
 RUN grep -Fq 'gpt-5-mini' app223/agent.py
 RUN grep -Fq 'persistent_legacy_hash' app223/security.py
-RUN grep -Fq 'jarvis227-supervisor' app223/agent.py
 RUN grep -Fq 'journal_mode=WAL' app223/db.py
 CMD ["python","jarvis_boot.py"]
