@@ -7,6 +7,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     JARVIS_SESSION_SECRET_FILE=/var/data/jarvis_session_secret \
     JARVIS_MODEL=gpt-5-mini \
     JARVIS_MODEL_FALLBACK=gpt-5-mini \
+    JARVIS_TTS_MODEL=gpt-4o-mini-tts \
+    JARVIS_TTS_VOICE=marin \
     JARVIS_COOKIE_SECURE=1 \
     JARVIS_MAX_STEPS=30
 COPY requirements.txt .
@@ -14,7 +16,12 @@ RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir
 COPY app223 ./app223
 COPY jarvis_boot.py ./jarvis_boot.py
 RUN python -m compileall -q app223 jarvis_boot.py
-RUN grep -Fq "VER='223.0.0'" app223/main.py
+RUN grep -Fq "VER='224.0.0'" app223/main.py
+RUN grep -Fq '/assistant/message' app223/main.py
+RUN grep -Fq '/voice/tts' app223/main.py
+RUN grep -Fq 'SpeechRecognition' app223/ui.py
+RUN grep -Fq 'Wake word armed' app223/ui.py
+RUN grep -Fq 'British voice' app223/ui.py
 RUN grep -Fq '/agent/v223/command' app223/main.py
 RUN grep -Fq '/model/test' app223/main.py
 RUN ! grep -Fq "'temperature'" app223/agent.py
