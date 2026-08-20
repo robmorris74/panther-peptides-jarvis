@@ -10,7 +10,7 @@ from .integrations import test_connections
 from .business import ensure_business_schema,inventory_rows,dashboard_summary,import_legacy,save_document,review_document,release_inventory,set_inventory_status,events
 from .ui import HTML
 from .business_ui import BUSINESS_HTML
-VER='225.1.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
+VER='225.2.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
 class Login(BaseModel):password:str
 class Cmd(BaseModel):text:str;request_id:str|None=None
 class ChatTurn(BaseModel):role:str;content:str
@@ -31,11 +31,13 @@ def health():return {'ok':True,'version':VER}
 def ready():
     s=status();persistent=DATA.exists() and os.access(DATA,os.W_OK);ok=s['database_ok'] and persistent and s['worker_alive'] and s['watchdog_alive'];return JSONResponse({'ok':ok,'version':VER,'persistent':persistent,**s},status_code=200 if ok else 503)
 @app.get('/',response_class=HTMLResponse)
-def home():return HTML
+def home():return BUSINESS_HTML
 @app.get('/dashboard',response_class=HTMLResponse)
 def dashboard_page():return BUSINESS_HTML
+@app.get('/jarvis',response_class=HTMLResponse)
+def jarvis_page():return HTML
 @app.get('/client/bootstrap')
-def bootstrap(req:Request):return {'ok':True,'version':VER,'authenticated':valid_session(req.cookies.get(COOKIE,'')),'runtime':status(),'owner_auth_source':password_source(),'wake_word':'jarvis','voice':'British male','dashboard':'/dashboard'}
+def bootstrap(req:Request):return {'ok':True,'version':VER,'authenticated':valid_session(req.cookies.get(COOKIE,'')),'runtime':status(),'owner_auth_source':password_source(),'wake_word':'jarvis','voice':'British male','dashboard':'/','jarvis':'/jarvis'}
 @app.post('/auth/login')
 def login(v:Login):
     if not verify_password(v.password):raise HTTPException(401,'Invalid owner password')
@@ -62,7 +64,9 @@ def command(v:Cmd,req:Request):
 def assistant_message(v:ChatReq,req:Request):
     require_owner(req);text=v.message.strip()
     if not text:raise HTTPException(400,'Empty message')
-    history=[{'role':t.role,'content':t.content[:4000]} for t in v.history[-12:] if t.role in ('user','assistant') and t.content.strip()];system='You are Jarvis, the owner-facing AI operating agent for Panther Peptides. Communicate naturally, calmly, confidently, and concisely, using British English wording where natural. Never falsely claim an action was performed. Panther Peptides products are FOR RESEARCH USE ONLY, NOT FOR HUMAN OR VETERINARY USE.';out=_model_call([{'role':'system','content':system},*history,{'role':'user','content':text}]);return {'ok':True,'reply':(out.get('content') or '').strip(),'model':out.get('model')}
+    history=[{'role':t.role,'content':t.content[:4000]} for t in v.history[-12:] if t.role in ('user','assistant') and t.content.strip()]
+    system='You are Jarvis, the owner-facing AI operating agent for Panther Peptides. Communicate naturally, calmly, confidently, and concisely, using British English wording where natural. Never falsely claim an action was performed. Panther Peptides products are FOR RESEARCH USE ONLY, NOT FOR HUMAN OR VETERINARY USE.'
+    out=_model_call([{'role':'system','content':system},*history,{'role':'user','content':text}]);return {'ok':True,'reply':(out.get('content') or '').strip(),'model':out.get('model')}
 def _spoken_version(text):
     clean=re.sub(r'```.*?```','',text,flags=re.S);clean=re.sub(r'[`*_#>|]','',clean);clean=re.sub(r'\s+',' ',clean).strip()
     if not clean:return 'Done.'
@@ -87,7 +91,7 @@ def model_test(req:Request):require_owner(req);return model_status(True)
 def readiness(req:Request):
     require_owner(req);s=status();c=test_connections();checks={'worker':s['worker_alive'],'watchdog':s['watchdog_alive'],'database':s['database_ok'],'persistent':DATA.exists() and os.access(DATA,os.W_OK),'github':c['github']['connected'],'render':c['render']['connected'],'openai':model_status(False)['configured']};return {'ok':all(checks.values()),'version':VER,'checks':checks,'connections':c,'status':s}
 @app.get('/business/dashboard')
-def business_dashboard(req:Request):require_owner(req);return {'ok':True,'summary':dashboard_summary(),'inventory':inventory_rows(),'events':events(),'objectives':execute('SELECT * FROM objectives ORDER BY id DESC LIMIT 30',fetch=True),'activity':execute('SELECT * FROM activity ORDER BY id DESC LIMIT 60',fetch=True)}
+def business_dashboard(req:Request):require_owner(req);return {'ok':True,'summary':dashboard_summary(),'inventory':inventory_rows(),'events':events(),'objectives':execute('SELECT * FROM objectives ORDER BY id DESC LIMIT 30',fetch=True),'activity':execute('SELECT * FROM activity ORDER BY id DESC LIMIT 60',fetch=True),'runtime':status()}
 @app.get('/business/inventory')
 def business_inventory(req:Request):require_owner(req);return {'ok':True,'items':inventory_rows(),'summary':dashboard_summary()}
 @app.post('/business/inventory/import-legacy')
