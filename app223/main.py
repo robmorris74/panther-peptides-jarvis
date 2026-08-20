@@ -10,9 +10,9 @@ from .integrations import test_connections
 from .business import ensure_business_schema,inventory_rows,dashboard_summary,import_legacy,save_document,review_document,release_inventory,set_inventory_status,events
 from .knowledge import ensure_knowledge_schema,save as save_knowledge,list_items as knowledge_items,context as knowledge_context,stats as knowledge_stats,delete_item as delete_knowledge
 from .authority import ensure_authority_schema,status as authority_status
-from .ui import HTML
+from .ui_nav import HTML
 from .business_ui import BUSINESS_HTML
-VER='228.0.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
+VER='228.1.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
 class Login(BaseModel):password:str
 class Cmd(BaseModel):text:str;request_id:str|None=None
 class ChatTurn(BaseModel):role:str;content:str
