@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /app
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 JARVIS_DATA_DIR=/var/data DATABASE_PATH=/var/data/operator.db JARVIS_SESSION_SECRET_FILE=/var/data/jarvis_session_secret JARVIS_MODEL=gpt-5-mini JARVIS_MODEL_FALLBACK=gpt-5-mini JARVIS_TTS_MODEL=gpt-4o-mini-tts JARVIS_TTS_VOICE=onyx JARVIS_COOKIE_SECURE=1 JARVIS_MAX_STEPS=45 JARVIS_MAX_APPROVED_SPEND=300 RAMP_ENV=production
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 JARVIS_DATA_DIR=/var/data DATABASE_PATH=/var/data/operator.db JARVIS_SESSION_SECRET_FILE=/var/data/jarvis_session_secret JARVIS_MODEL=gpt-5-mini JARVIS_MODEL_FALLBACK=gpt-5-mini JARVIS_TTS_MODEL=gpt-4o-mini-tts JARVIS_TTS_VOICE=onyx JARVIS_COOKIE_SECURE=1 JARVIS_MAX_STEPS=45 JARVIS_MAX_APPROVED_SPEND=300 RAMP_ENV=production JARVIS_RELEASE=228.3.0-r2
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir fastapi uvicorn python-multipart pypdf
 COPY app223 ./app223
@@ -9,6 +9,7 @@ RUN python -m compileall -q app223 jarvis_boot.py
 RUN grep -Fq "VER='228.3.0'" app223/main.py
 RUN grep -Fq "Starting…" app223/business_ui.py
 RUN grep -Fq "Retrying…" app223/business_ui.py
+RUN grep -Fq "resilient mode" app223/business_ui.py
 RUN grep -Fq "authenticated" app223/business_ui.py
 RUN grep -Fq '/agent/approval' app223/main.py
 RUN grep -Fq '/agent/authority' app223/main.py
