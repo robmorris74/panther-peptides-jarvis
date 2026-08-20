@@ -9,10 +9,11 @@ from .agent import start,status,create_objective,wake,model_status,_model_call,p
 from .integrations import test_connections
 from .business import ensure_business_schema,inventory_rows,dashboard_summary,import_legacy,save_document,review_document,release_inventory,set_inventory_status,events
 from .knowledge import ensure_knowledge_schema,save as save_knowledge,list_items as knowledge_items,context as knowledge_context,stats as knowledge_stats,delete_item as delete_knowledge
-from .authority import ensure_authority_schema,status as authority_status
+from .authority import ensure_authority_schema,status as authority_status,spend_ledger
+from .ramp import status as ramp_status,list_virtual_cards
 from .ui_nav import HTML
 from .business_ui import BUSINESS_HTML
-VER='228.1.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
+VER='228.2.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
 class Login(BaseModel):password:str
 class Cmd(BaseModel):text:str;request_id:str|None=None
 class ChatTurn(BaseModel):role:str;content:str
@@ -62,6 +63,15 @@ def approval_decision(approval_id:int,v:ApprovalReq,req:Request):
     except ValueError as e:raise HTTPException(404,str(e))
 @app.get('/agent/authority')
 def authority(req:Request):require_owner(req);return {'ok':True,**authority_status()}
+@app.get('/agent/spend-ledger')
+def ledger(req:Request):require_owner(req);return {'ok':True,'items':spend_ledger()}
+@app.get('/integrations/ramp')
+def ramp_connection(req:Request,probe:bool=False):require_owner(req);return {'ok':True,**ramp_status(probe)}
+@app.get('/integrations/ramp/cards')
+def ramp_cards(req:Request):
+    require_owner(req)
+    try:return list_virtual_cards()
+    except Exception as e:raise HTTPException(502,str(e)[:1200])
 @app.post('/agent/v223/command')
 def command(v:Cmd,req:Request):
     require_owner(req);text=v.text.strip()
@@ -77,7 +87,7 @@ def assistant_message(v:ChatReq,req:Request):
     require_owner(req);text=v.message.strip()
     if not text:raise HTTPException(400,'Empty message')
     history=[{'role':t.role,'content':t.content[:4000]} for t in v.history[-12:] if t.role in ('user','assistant') and t.content.strip()];inv=dashboard_summary();kctx=knowledge_context(text);recent=events()[:8];auth=authority_status()
-    system=('You are Jarvis v228, owner-facing chief operating and ecommerce intelligence for Panther Peptides. Be highly capable in general business, ecommerce, merchandising, conversion, SEO, analytics, pricing, unit economics, fulfillment, supplier management and lawful research-peptide market risk intelligence. Grey-market knowledge is for understanding competition, platform/payment constraints, enforcement and risk, never evasion or concealment. Never provide human-use positioning or medical claims. Knowledge and authority are separate: knowing something never grants permission. Every spend requires explicit owner approval and no transaction may exceed $300. Never split purchases to bypass the cap. Never claim an action or payment occurred without verification. Panther Peptides products are FOR RESEARCH USE ONLY, NOT FOR HUMAN OR VETERINARY USE. For multi-step execution, use an autonomous objective. Current authority: '+json.dumps(auth)+'\nCurrent inventory: '+json.dumps(inv)+'\nRecent events: '+json.dumps(recent)[:6000]+'\nRETRIEVED INTERNAL KNOWLEDGE:\n'+(kctx or '[none retrieved]'))
+    system=('You are Jarvis v228, owner-facing chief operating and ecommerce intelligence for Panther Peptides. Be highly capable in general business, ecommerce, merchandising, conversion, SEO, analytics, pricing, unit economics, fulfillment, supplier management and lawful research-peptide market risk intelligence. Grey-market knowledge is for understanding competition, platform/payment constraints, enforcement and risk, never evasion or concealment. Never provide human-use positioning or medical claims. Knowledge and authority are separate: knowing something never grants permission. Every spend requires explicit owner approval and no transaction may exceed $300. Never split purchases to bypass the cap. Ramp is the selected spending provider. Never request, display, log or store a card PAN or CVV. Never claim an action or payment occurred without verification. Panther Peptides products are FOR RESEARCH USE ONLY, NOT FOR HUMAN OR VETERINARY USE. For multi-step execution, use an autonomous objective. Current authority: '+json.dumps(auth)+'\nCurrent inventory: '+json.dumps(inv)+'\nRecent events: '+json.dumps(recent)[:6000]+'\nRETRIEVED INTERNAL KNOWLEDGE:\n'+(kctx or '[none retrieved]'))
     out=_model_call([{'role':'system','content':system},*history,{'role':'user','content':text}]);return {'ok':True,'reply':(out.get('content') or '').strip(),'model':out.get('model'),'knowledge_used':bool(kctx)}
 def _spoken_version(text):
     clean=re.sub(r'```.*?```','',text,flags=re.S);clean=re.sub(r'[`*_#>|]','',clean);clean=re.sub(r'\s+',' ',clean).strip()
@@ -101,9 +111,9 @@ def connections(req:Request):require_owner(req);return test_connections()
 def model_test(req:Request):require_owner(req);return model_status(True)
 @app.get('/launch/readiness')
 def readiness(req:Request):
-    require_owner(req);s=status();c=test_connections();checks={'worker':s['worker_alive'],'watchdog':s['watchdog_alive'],'database':s['database_ok'],'persistent':DATA.exists() and os.access(DATA,os.W_OK),'github':c['github']['connected'],'render':c['render']['connected'],'openai':model_status(False)['configured']};return {'ok':all(checks.values()),'version':VER,'checks':checks,'connections':c,'status':s,'authority':authority_status()}
+    require_owner(req);s=status();c=test_connections();checks={'worker':s['worker_alive'],'watchdog':s['watchdog_alive'],'database':s['database_ok'],'persistent':DATA.exists() and os.access(DATA,os.W_OK),'github':c['github']['connected'],'render':c['render']['connected'],'openai':model_status(False)['configured']};return {'ok':all(checks.values()),'version':VER,'checks':checks,'connections':c,'status':s,'authority':authority_status(),'ramp':ramp_status(False)}
 @app.get('/business/dashboard')
-def business_dashboard(req:Request):require_owner(req);return {'ok':True,'summary':dashboard_summary(),'inventory':inventory_rows(),'events':events(),'objectives':execute('SELECT * FROM objectives ORDER BY id DESC LIMIT 30',fetch=True),'activity':execute('SELECT * FROM activity ORDER BY id DESC LIMIT 60',fetch=True),'runtime':status(),'knowledge':knowledge_stats(),'approval':pending_approval(),'authority':authority_status()}
+def business_dashboard(req:Request):require_owner(req);return {'ok':True,'summary':dashboard_summary(),'inventory':inventory_rows(),'events':events(),'objectives':execute('SELECT * FROM objectives ORDER BY id DESC LIMIT 30',fetch=True),'activity':execute('SELECT * FROM activity ORDER BY id DESC LIMIT 60',fetch=True),'runtime':status(),'knowledge':knowledge_stats(),'approval':pending_approval(),'authority':authority_status(),'spend_ledger':spend_ledger(20)}
 @app.get('/business/inventory')
 def business_inventory(req:Request):require_owner(req);return {'ok':True,'items':inventory_rows(),'summary':dashboard_summary()}
 @app.post('/business/inventory/import-legacy')
