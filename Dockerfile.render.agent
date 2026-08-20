@@ -17,17 +17,17 @@ RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir
 COPY app223 ./app223
 COPY jarvis_boot.py ./jarvis_boot.py
 RUN python -m compileall -q app223 jarvis_boot.py
-RUN grep -Fq "VER='225.0.0'" app223/main.py
+RUN grep -Fq "VER='225.2.0'" app223/main.py
+RUN grep -Fq "def home():return BUSINESS_HTML" app223/main.py
+RUN grep -Fq "@app.get('/jarvis'" app223/main.py
 RUN grep -Fq '/assistant/message' app223/main.py
 RUN grep -Fq '/voice/tts' app223/main.py
 RUN grep -Fq '/business/dashboard' app223/main.py
 RUN grep -Fq '/business/inventory/{inventory_id}/documents' app223/main.py
-RUN grep -Fq '/business/inventory/{inventory_id}/release' app223/main.py
+RUN grep -Fq '/business/inventory/{inventory_id}/status' app223/main.py
 RUN grep -Fq 'pp_inventory_documents' app223/business.py
 RUN grep -Fq 'FOR RESEARCH USE ONLY' app223/main.py
 RUN grep -Fq 'SpeechRecognition' app223/ui.py
-RUN grep -Fq '/agent/v223/command' app223/main.py
-RUN grep -Fq '/model/test' app223/main.py
 RUN ! grep -Fq "'temperature'" app223/agent.py
 RUN grep -Fq 'gpt-5-mini' app223/agent.py
 RUN grep -Fq 'persistent_legacy_hash' app223/security.py
