@@ -1,4 +1,4 @@
-import os,json,urllib.request,urllib.error
+import os,json,re,urllib.request,urllib.error
 from pathlib import Path
 from fastapi import FastAPI,Request,HTTPException
 from fastapi.responses import HTMLResponse,JSONResponse,Response
@@ -46,7 +46,7 @@ def home(): return HTML
 
 @app.get('/client/bootstrap')
 def bootstrap(req:Request):
-    return {'ok':True,'version':VER,'authenticated':valid_session(req.cookies.get(COOKIE,'')),'runtime':status(),'owner_auth_source':password_source(),'wake_word':'jarvis','voice':'British English'}
+    return {'ok':True,'version':VER,'authenticated':valid_session(req.cookies.get(COOKIE,'')),'runtime':status(),'owner_auth_source':password_source(),'wake_word':'jarvis','voice':'British male'}
 
 @app.post('/auth/login')
 def login(v:Login):
@@ -88,7 +88,7 @@ def assistant_message(v:ChatReq,req:Request):
         if t.role in ('user','assistant') and t.content.strip(): history.append({'role':t.role,'content':t.content[:4000]})
     system=(
         'You are Jarvis, the owner-facing AI operating agent for Panther Peptides. '
-        'Speak naturally, calmly, confidently, and concisely. Use British English wording where natural. '
+        'Communicate naturally, calmly, confidently, and concisely, using British English wording where natural. '
         'You are in conversation mode: answer questions and discuss plans. Do not falsely claim an action was performed. '
         'If the owner asks you to carry out autonomous work, tell them you can start it as an objective and briefly restate the objective. '
         'Panther Peptides products are for research use only, not for human or veterinary use.'
@@ -96,25 +96,48 @@ def assistant_message(v:ChatReq,req:Request):
     out=_model_call([{'role':'system','content':system},*history,{'role':'user','content':text}])
     return {'ok':True,'reply':(out.get('content') or '').strip(),'model':out.get('model')}
 
+def _spoken_version(text:str)->str:
+    clean=re.sub(r'```.*?```','',text,flags=re.S)
+    clean=re.sub(r'[`*_#>|]','',clean)
+    clean=re.sub(r'\s+',' ',clean).strip()
+    if not clean:return 'Done.'
+    # Do not simply read the written answer aloud. Create a short, conversational voice response.
+    try:
+        prompt=(
+            'Turn the following written Jarvis response into a distinct short spoken response. '
+            'Do NOT read or repeat the written text verbatim. Give the owner the key conclusion naturally in one or two sentences, '
+            'maximum 45 words, in polished British English. Do not mention that details are written unless helpful. '
+            'Written response:\n'+clean[:6000]
+        )
+        out=_model_call([{'role':'system','content':'You write concise spoken dialogue for a British male AI assistant named Jarvis.'},{'role':'user','content':prompt}])
+        spoken=(out.get('content') or '').strip()
+        if spoken:return spoken[:700]
+    except Exception:
+        pass
+    # Low-latency fallback: first useful sentence, never the whole displayed response.
+    parts=re.split(r'(?<=[.!?])\s+',clean)
+    first=(parts[0] if parts else clean)[:300]
+    return first if len(parts)<=1 else first+' I have the rest on screen.'
+
 @app.post('/voice/tts')
 def tts(v:TTSReq,req:Request):
     require_owner(req)
     text=v.text.strip()
     if not text: raise HTTPException(400,'Empty speech text')
-    if len(text)>5000: text=text[:5000]
+    spoken=_spoken_version(text)
     key=os.getenv('OPENAI_API_KEY','').strip()
     if not key: raise HTTPException(503,'OPENAI_API_KEY is not configured')
     payload={
         'model':os.getenv('JARVIS_TTS_MODEL','gpt-4o-mini-tts'),
-        'voice':os.getenv('JARVIS_TTS_VOICE','marin'),
-        'input':text,
+        'voice':os.getenv('JARVIS_TTS_VOICE','onyx'),
+        'input':spoken,
         'response_format':'mp3',
-        'instructions':os.getenv('JARVIS_TTS_INSTRUCTIONS','Speak in a polished, warm, natural British English accent. Sound like an intelligent personal aide: composed, articulate, conversational, never robotic, with subtle warmth and restrained energy.')
+        'instructions':os.getenv('JARVIS_TTS_INSTRUCTIONS','Adult British male voice. Polished modern received-pronunciation English accent, lower male register, calm and assured, warm but restrained, articulate, intelligent personal aide. Natural conversational cadence with subtle dry confidence. Never feminine, never high-pitched, never robotic, never announcer-like. Do not sound American.')
     }
     try:
         q=urllib.request.Request('https://api.openai.com/v1/audio/speech',data=json.dumps(payload).encode(),headers={'Authorization':f'Bearer {key}','Content-Type':'application/json','User-Agent':'Jarvis-v224'})
         with urllib.request.urlopen(q,timeout=90) as r: audio=r.read()
-        return Response(content=audio,media_type='audio/mpeg',headers={'Cache-Control':'no-store'})
+        return Response(content=audio,media_type='audio/mpeg',headers={'Cache-Control':'no-store','X-Jarvis-Voice':'British-male-onyx'})
     except urllib.error.HTTPError as e:
         body=e.read().decode('utf-8','replace')[:1600]
         raise HTTPException(e.code if e.code<500 else 502,f'TTS provider error: {body}')
