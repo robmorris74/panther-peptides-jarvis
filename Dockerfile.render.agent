@@ -6,7 +6,10 @@ RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir
 COPY app223 ./app223
 COPY jarvis_boot.py ./jarvis_boot.py
 RUN python -m compileall -q app223 jarvis_boot.py
-RUN grep -Fq "VER='228.2.0'" app223/main.py
+RUN grep -Fq "VER='228.3.0'" app223/main.py
+RUN grep -Fq "Starting…" app223/business_ui.py
+RUN grep -Fq "Retrying…" app223/business_ui.py
+RUN grep -Fq "authenticated" app223/business_ui.py
 RUN grep -Fq '/agent/approval' app223/main.py
 RUN grep -Fq '/agent/authority' app223/main.py
 RUN grep -Fq '/agent/spend-ledger' app223/main.py
