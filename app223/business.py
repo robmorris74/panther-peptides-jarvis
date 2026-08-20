@@ -1,4 +1,4 @@
-import os,hashlib,sqlite3,re
+import os,hashlib,re
 from pathlib import Path
 from .db import execute,connect
 
@@ -6,7 +6,6 @@ DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'))
 UPLOADS=DATA/'inventory_docs'
 UPLOADS.mkdir(parents=True,exist_ok=True)
 
-CANDIDATE_TABLES=('inventory','inventory_items','inventory_lots','lots','stock','products')
 
 def ensure_business_schema():
     execute('''CREATE TABLE IF NOT EXISTS pp_inventory(
@@ -16,7 +15,7 @@ def ensure_business_schema():
       vial_size TEXT,
       lot_code TEXT,
       quantity INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'quarantine',
+      status TEXT NOT NULL DEFAULT 'available',
       coa_status TEXT NOT NULL DEFAULT 'missing',
       supplier TEXT,
       received_at TEXT,
@@ -35,7 +34,7 @@ def ensure_business_schema():
       sha256 TEXT NOT NULL,
       mime_type TEXT,
       size_bytes INTEGER,
-      review_status TEXT NOT NULL DEFAULT 'pending_review',
+      review_status TEXT NOT NULL DEFAULT 'on_file',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(inventory_id) REFERENCES pp_inventory(id)
     )''')
@@ -66,91 +65,66 @@ def _pick(cols,*names):
     return None
 
 def discover_legacy_inventory():
-    """Non-destructive adapter: surface likely inventory tables left by older Jarvis builds."""
     result=[]
     for table in _tables():
         tl=table.lower()
         if table in ('pp_inventory','pp_inventory_documents') or not any(k in tl for k in ('inventory','lot','stock','product')):continue
         try:
-            cols=_columns(table)
-            product=_pick(cols,'product','product_name','name','peptide')
-            qty=_pick(cols,'quantity','qty','units','count','on_hand')
-            lot=_pick(cols,'lot_code','lot','batch','batch_id')
-            status=_pick(cols,'status','state','disposition')
-            sku=_pick(cols,'sku','product_code')
-            size=_pick(cols,'vial_size','size','strength')
+            cols=_columns(table);product=_pick(cols,'product','product_name','name','peptide');qty=_pick(cols,'quantity','qty','units','count','on_hand');lot=_pick(cols,'lot_code','lot','batch','batch_id');status=_pick(cols,'status','state','disposition');sku=_pick(cols,'sku','product_code');size=_pick(cols,'vial_size','size','strength')
             if not product:continue
             chosen=[c for c in (product,sku,size,lot,qty,status) if c]
             sql='SELECT rowid AS __rid,'+','.join('"'+c.replace('"','')+'"' for c in chosen)+f' FROM "{table}" LIMIT 500'
             with connect() as con:
                 for r in con.execute(sql).fetchall():
-                    d=dict(r)
-                    result.append({'legacy':True,'source_table':table,'source_id':str(d.get('__rid')),'product':str(d.get(product) or 'Unknown'),'sku':str(d.get(sku) or '') if sku else '', 'vial_size':str(d.get(size) or '') if size else '', 'lot_code':str(d.get(lot) or '') if lot else '', 'quantity':int(d.get(qty) or 0) if qty else 0, 'status':str(d.get(status) or 'quarantine') if status else 'quarantine','coa_status':'unknown','documents':[]})
-        except Exception:
-            continue
+                    d=dict(r);legacy_status=str(d.get(status) or 'available') if status else 'available'
+                    result.append({'legacy':True,'source_table':table,'source_id':str(d.get('__rid')),'product':str(d.get(product) or 'Unknown'),'sku':str(d.get(sku) or '') if sku else '','vial_size':str(d.get(size) or '') if size else '','lot_code':str(d.get(lot) or '') if lot else '','quantity':int(d.get(qty) or 0) if qty else 0,'status':legacy_status,'coa_status':'unknown','documents':[]})
+        except Exception:continue
     return result
 
 def inventory_rows():
-    ensure_business_schema()
-    rows=execute('SELECT * FROM pp_inventory ORDER BY product,lot_code,id',fetch=True)
+    ensure_business_schema();rows=execute('SELECT * FROM pp_inventory ORDER BY product,lot_code,id',fetch=True)
     for r in rows:
-        r['legacy']=False
-        r['documents']=execute('SELECT id,kind,original_name,mime_type,size_bytes,review_status,created_at FROM pp_inventory_documents WHERE inventory_id=? ORDER BY id DESC',(r['id'],),True)
-    if rows:return rows
-    return discover_legacy_inventory()
+        r['legacy']=False;r['documents']=execute('SELECT id,kind,original_name,mime_type,size_bytes,review_status,created_at FROM pp_inventory_documents WHERE inventory_id=? ORDER BY id DESC',(r['id'],),True)
+    return rows if rows else discover_legacy_inventory()
 
 def dashboard_summary():
-    ensure_business_schema()
-    inv=inventory_rows()
-    quarantined=sum(int(x.get('quantity') or 0) for x in inv if str(x.get('status','')).lower() in ('quarantine','quarantined','hold','blocked'))
-    released=sum(int(x.get('quantity') or 0) for x in inv if str(x.get('status','')).lower() in ('released','available','active'))
+    inv=inventory_rows();held=sum(int(x.get('quantity') or 0) for x in inv if str(x.get('status','')).lower() in ('quarantine','quarantined','hold','blocked'));available=sum(int(x.get('quantity') or 0) for x in inv if str(x.get('status','')).lower() in ('released','available','active'))
     missing=sum(1 for x in inv if str(x.get('coa_status','')).lower() in ('missing','unknown',''))
-    return {'lots':len(inv),'units':sum(int(x.get('quantity') or 0) for x in inv),'quarantined_units':quarantined,'released_units':released,'lots_missing_or_unknown_docs':missing}
+    return {'lots':len(inv),'units':sum(int(x.get('quantity') or 0) for x in inv),'quarantined_units':held,'released_units':available,'lots_missing_or_unknown_docs':missing}
 
 def import_legacy():
-    ensure_business_schema(); created=0
+    ensure_business_schema();created=0
     for r in discover_legacy_inventory():
-        exists=execute('SELECT id FROM pp_inventory WHERE source_table=? AND source_id=?',(r['source_table'],r['source_id']),True)
-        if exists:continue
-        execute('INSERT INTO pp_inventory(product,sku,vial_size,lot_code,quantity,status,coa_status,source_table,source_id) VALUES(?,?,?,?,?,?,?,?,?)',(r['product'],r['sku'],r['vial_size'],r['lot_code'],r['quantity'],r['status'],'unknown',r['source_table'],r['source_id']))
-        created+=1
+        if execute('SELECT id FROM pp_inventory WHERE source_table=? AND source_id=?',(r['source_table'],r['source_id']),True):continue
+        execute('INSERT INTO pp_inventory(product,sku,vial_size,lot_code,quantity,status,coa_status,source_table,source_id) VALUES(?,?,?,?,?,?,?,?,?)',(r['product'],r['sku'],r['vial_size'],r['lot_code'],r['quantity'],r['status'] or 'available','unknown',r['source_table'],r['source_id']));created+=1
     if created:execute('INSERT INTO pp_business_events(category,title,detail) VALUES(?,?,?)',('inventory','Legacy inventory imported',f'{created} record(s) imported from prior Jarvis database tables.'))
     return {'ok':True,'imported':created}
 
 def save_document(inventory_id:int,filename:str,content:bytes,mime_type:str='application/octet-stream',kind:str='coa'):
-    ensure_business_schema()
-    row=execute('SELECT * FROM pp_inventory WHERE id=?',(inventory_id,),True)
+    ensure_business_schema();row=execute('SELECT * FROM pp_inventory WHERE id=?',(inventory_id,),True)
     if not row:raise ValueError('Inventory lot not found. Import legacy inventory first if this is an older record.')
     if not content:raise ValueError('Empty file')
     if len(content)>25*1024*1024:raise ValueError('File exceeds 25 MB limit')
-    safe=re.sub(r'[^A-Za-z0-9._-]+','_',filename or 'document')[:180]
-    digest=hashlib.sha256(content).hexdigest()
-    path=UPLOADS/f'{inventory_id}_{digest[:12]}_{safe}'
-    path.write_bytes(content)
-    doc_id=execute('INSERT INTO pp_inventory_documents(inventory_id,kind,original_name,stored_path,sha256,mime_type,size_bytes) VALUES(?,?,?,?,?,?,?)',(inventory_id,kind,filename,str(path),digest,mime_type,len(content)))
-    execute("UPDATE pp_inventory SET coa_status='pending_review',updated_at=CURRENT_TIMESTAMP WHERE id=?",(inventory_id,))
-    execute('INSERT INTO pp_business_events(category,title,detail,severity) VALUES(?,?,?,?)',('inventory','Document uploaded',f'{filename} attached to inventory lot #{inventory_id}. Owner review required before release.','info'))
-    return {'ok':True,'document_id':doc_id,'sha256':digest,'status':'pending_review'}
+    safe=re.sub(r'[^A-Za-z0-9._-]+','_',filename or 'document')[:180];digest=hashlib.sha256(content).hexdigest();path=UPLOADS/f'{inventory_id}_{digest[:12]}_{safe}';path.write_bytes(content)
+    doc_id=execute('INSERT INTO pp_inventory_documents(inventory_id,kind,original_name,stored_path,sha256,mime_type,size_bytes,review_status) VALUES(?,?,?,?,?,?,?,?)',(inventory_id,kind,filename,str(path),digest,mime_type,len(content),'on_file'))
+    execute("UPDATE pp_inventory SET coa_status='on_file',updated_at=CURRENT_TIMESTAMP WHERE id=?",(inventory_id,));execute('INSERT INTO pp_business_events(category,title,detail,severity) VALUES(?,?,?,?)',('inventory','Document uploaded',f'{filename} attached to inventory lot #{inventory_id}. Availability was not changed.','info'))
+    return {'ok':True,'document_id':doc_id,'sha256':digest,'status':'on_file'}
 
 def review_document(doc_id:int,approved:bool):
-    ensure_business_schema(); rows=execute('SELECT * FROM pp_inventory_documents WHERE id=?',(doc_id,),True)
+    rows=execute('SELECT * FROM pp_inventory_documents WHERE id=?',(doc_id,),True)
     if not rows:raise ValueError('Document not found')
-    doc=rows[0]; state='approved' if approved else 'rejected'
-    execute('UPDATE pp_inventory_documents SET review_status=? WHERE id=?',(state,doc_id))
-    if approved:
-        execute("UPDATE pp_inventory SET coa_status='approved',updated_at=CURRENT_TIMESTAMP WHERE id=?",(doc['inventory_id'],))
-    else:
-        execute("UPDATE pp_inventory SET coa_status='rejected',updated_at=CURRENT_TIMESTAMP WHERE id=?",(doc['inventory_id'],))
-    return {'ok':True,'review_status':state}
+    doc=rows[0];state='approved' if approved else 'rejected';execute('UPDATE pp_inventory_documents SET review_status=? WHERE id=?',(state,doc_id));execute("UPDATE pp_inventory SET coa_status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(state,doc['inventory_id']));return {'ok':True,'review_status':state}
+
+def set_inventory_status(inventory_id:int,status:str):
+    status=status.lower().strip()
+    if status not in ('available','quarantine','hold'):raise ValueError('Invalid inventory status')
+    rows=execute('SELECT id FROM pp_inventory WHERE id=?',(inventory_id,),True)
+    if not rows:raise ValueError('Inventory lot not found')
+    execute('UPDATE pp_inventory SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',(status,inventory_id));execute('INSERT INTO pp_business_events(category,title,detail,severity) VALUES(?,?,?,?)',('inventory','Inventory status changed',f'Inventory lot #{inventory_id} changed to {status}.','info'));return {'ok':True,'status':status}
 
 def release_inventory(inventory_id:int):
-    ensure_business_schema(); rows=execute('SELECT * FROM pp_inventory WHERE id=?',(inventory_id,),True)
-    if not rows:raise ValueError('Inventory lot not found')
-    approved=execute("SELECT COUNT(*) n FROM pp_inventory_documents WHERE inventory_id=? AND review_status='approved'",(inventory_id,),True)[0]['n']
-    if not approved:raise ValueError('Cannot release: no owner-approved supporting document is attached')
-    execute("UPDATE pp_inventory SET status='released',coa_status='approved',updated_at=CURRENT_TIMESTAMP WHERE id=?",(inventory_id,))
-    execute('INSERT INTO pp_business_events(category,title,detail,severity) VALUES(?,?,?,?)',('inventory','Inventory released',f'Inventory lot #{inventory_id} released after approved documentation.','info'))
-    return {'ok':True,'status':'released'}
+    # Availability is an owner-controlled inventory decision and is not gated by documentation.
+    return set_inventory_status(inventory_id,'available')
 
 def events():
-    ensure_business_schema(); return execute('SELECT * FROM pp_business_events ORDER BY id DESC LIMIT 100',fetch=True)
+    ensure_business_schema();return execute('SELECT * FROM pp_business_events ORDER BY id DESC LIMIT 100',fetch=True)
