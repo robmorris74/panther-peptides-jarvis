@@ -17,9 +17,14 @@ RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir
 COPY app223 ./app223
 COPY jarvis_boot.py ./jarvis_boot.py
 RUN python -m compileall -q app223 jarvis_boot.py
-RUN grep -Fq "VER='225.2.0'" app223/main.py
+RUN grep -Fq "VER='226.0.0'" app223/main.py
 RUN grep -Fq "def home():return BUSINESS_HTML" app223/main.py
 RUN grep -Fq "@app.get('/jarvis'" app223/main.py
+RUN grep -Fq '/knowledge/upload' app223/main.py
+RUN grep -Fq 'knowledge_context' app223/main.py
+RUN grep -Fq 'inventory_set_status' app223/tools.py
+RUN grep -Fq "filter='available'" app223/business_ui.py
+RUN grep -Fq 'Jarvis Knowledge' app223/business_ui.py
 RUN grep -Fq '/assistant/message' app223/main.py
 RUN grep -Fq '/voice/tts' app223/main.py
 RUN grep -Fq '/business/dashboard' app223/main.py
