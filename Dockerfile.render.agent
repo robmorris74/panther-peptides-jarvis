@@ -6,7 +6,10 @@ RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir
 COPY app223 ./app223
 COPY jarvis_boot.py ./jarvis_boot.py
 RUN python -m compileall -q app223 jarvis_boot.py
-RUN grep -Fq "VER='228.0.0'" app223/main.py
+RUN grep -Fq "VER='228.1.0'" app223/main.py
+RUN grep -Fq 'from .ui_nav import HTML' app223/main.py
+RUN grep -Fq 'Dashboard' app223/ui_nav.py
+RUN grep -Fq 'href="/jarvis"' app223/business_ui.py
 RUN grep -Fq 'ensure_authority_schema' app223/main.py
 RUN grep -Fq '/agent/authority' app223/main.py
 RUN grep -Fq 'execute_approved_spend' app223/tools.py
