@@ -1,0 +1,38 @@
+name: Jarvis v230 smoke gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      JARVIS_ENV: test
+      JARVIS_DATA_DIR: /tmp/jarvis-data
+      DATABASE_PATH: /tmp/jarvis-data/operator.db
+      JARVIS_SESSION_SECRET_FILE: /tmp/jarvis-data/jarvis_session_secret
+      JARVIS_COOKIE_SECURE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile production app
+        run: python -m compileall -q app223 jarvis_boot.py
+      - name: Import production app
+        run: python -c "from app223.main import app,VER; assert VER == '230.0.0'; assert app.title == 'Jarvis'"
+      - name: Verify deployment contract
+        run: |
+          grep -Fq 'dockerfilePath: ./Dockerfile.render.agent' render.yaml
+          grep -Fq 'mountPath: /app/data' render.yaml
+          grep -Fq 'JARVIS_DATA_DIR=/app/data' Dockerfile.render.agent
+          grep -Fq "VER='230.0.0'" app223/main.py
+          grep -Fq '/auth/logout' app223/main.py
+          grep -Fq "return 'unconfigured'" app223/security.py
