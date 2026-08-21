@@ -13,7 +13,7 @@ from .authority import ensure_authority_schema,status as authority_status,spend_
 from .ramp import status as ramp_status,list_virtual_cards
 from .ui_nav import HTML
 from .business_ui import BUSINESS_HTML
-VER='229.0.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
+VER='230.0.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/app/data'));app=FastAPI(title='Jarvis',version=VER)
 class Login(BaseModel):password:str
 class Cmd(BaseModel):text:str;request_id:str|None=None
 class ChatTurn(BaseModel):role:str;content:str
@@ -28,7 +28,7 @@ def boot():init_db();ensure_business_schema();ensure_knowledge_schema();ensure_a
 async def headers(req,call_next):
     try:r=await call_next(req)
     except Exception as e:r=JSONResponse({'ok':False,'error':'internal_error','detail':str(e)[:1000],'version':VER},status_code=500)
-    r.headers['X-Jarvis-Version']=VER;r.headers['Cache-Control']='no-store';return r
+    r.headers['X-Jarvis-Version']=VER;r.headers['Cache-Control']='no-store';r.headers['X-Content-Type-Options']='nosniff';r.headers['Referrer-Policy']='same-origin';r.headers['X-Frame-Options']='DENY';return r
 @app.get('/health')
 def health():return {'ok':True,'version':VER}
 @app.get('/health/ready')
@@ -41,11 +41,15 @@ def dashboard_page():return BUSINESS_HTML
 @app.get('/jarvis',response_class=HTMLResponse)
 def jarvis_page():return HTML
 @app.get('/client/bootstrap')
-def bootstrap(req:Request):return {'ok':True,'version':VER,'authenticated':valid_session(req.cookies.get(COOKIE,'')),'runtime':status(),'owner_auth_source':password_source(),'wake_word':'jarvis','voice':'British male','dashboard':'/','jarvis':'/jarvis','knowledge':knowledge_stats() if valid_session(req.cookies.get(COOKIE,'')) else None,'authority':authority_status() if valid_session(req.cookies.get(COOKIE,'')) else None}
+def bootstrap(req:Request):
+    authenticated=valid_session(req.cookies.get(COOKIE,''));return {'ok':True,'version':VER,'authenticated':authenticated,'runtime':status(),'owner_auth_source':password_source(),'wake_word':'jarvis','voice':'British male','dashboard':'/','jarvis':'/jarvis','knowledge':knowledge_stats() if authenticated else None,'authority':authority_status() if authenticated else None}
 @app.post('/auth/login')
 def login(v:Login):
     if not verify_password(v.password):raise HTTPException(401,'Invalid owner password')
     r=JSONResponse({'ok':True,'version':VER});r.set_cookie(COOKIE,make_session(),httponly=True,secure=os.getenv('JARVIS_COOKIE_SECURE','1')!='0',samesite='lax',max_age=SESSION_TTL,path='/');return r
+@app.post('/auth/logout')
+def logout():
+    r=JSONResponse({'ok':True,'version':VER});r.delete_cookie(COOKIE,path='/');return r
 @app.get('/agent/status')
 def agent_status(req:Request):require_owner(req);return {**status(),'version':VER,'persistent':DATA.exists() and os.access(DATA,os.W_OK)}
 @app.post('/agent/wake')
@@ -81,7 +85,7 @@ def command(v:Cmd,req:Request):
     if v.request_id:
         old=one('SELECT response_json FROM command_receipts WHERE request_id=?',(v.request_id,))
         if old:return json.loads(old['response_json'])
-    oid=create_objective(text);result={'ok':True,'objective_id':oid,'message':f'Objective #{oid} queued in Jarvis v229 execution engine. Jarvis will act, verify, continue autonomously, and only stop for a genuine blocker or required approval.'}
+    oid=create_objective(text);result={'ok':True,'objective_id':oid,'message':f'Objective #{oid} queued in Jarvis v230 execution engine. Jarvis will act, verify, continue autonomously, and only stop for a genuine blocker or required approval.'}
     if v.request_id:execute('INSERT OR REPLACE INTO command_receipts(request_id,response_json) VALUES(?,?)',(v.request_id,json.dumps(result)))
     return result
 @app.post('/assistant/message')
@@ -89,7 +93,7 @@ def assistant_message(v:ChatReq,req:Request):
     require_owner(req);text=v.message.strip()
     if not text:raise HTTPException(400,'Empty message')
     history=[{'role':t.role,'content':t.content[:4000]} for t in v.history[-12:] if t.role in ('user','assistant') and t.content.strip()];inv=dashboard_summary();kctx=knowledge_context(text);recent=events()[:8];auth=authority_status()
-    system=('You are Jarvis v229, owner-facing chief operating and ecommerce intelligence for Panther Peptides. Conversation is for discussion and decisions; actionable multi-step work must be submitted as an autonomous objective. Be highly capable in general business, ecommerce, merchandising, conversion, SEO, analytics, pricing, unit economics, fulfillment, supplier management and lawful research-peptide market risk intelligence. Grey-market knowledge is for understanding competition, platform/payment constraints, enforcement and risk, never evasion or concealment. Never provide human-use positioning or medical claims. Knowledge and authority are separate: knowing something never grants permission. Every spend requires explicit owner approval and no transaction may exceed $300. Never split purchases to bypass the cap. Never claim an action or payment occurred without verification. Panther Peptides products are FOR RESEARCH USE ONLY, NOT FOR HUMAN OR VETERINARY USE. Current authority: '+json.dumps(auth)+'\nCurrent inventory: '+json.dumps(inv)+'\nRecent events: '+json.dumps(recent)[:6000]+'\nRETRIEVED INTERNAL KNOWLEDGE:\n'+(kctx or '[none retrieved]'))
+    system=('You are Jarvis v230, owner-facing chief operating and ecommerce intelligence for Panther Peptides. Conversation is for discussion and decisions; actionable multi-step work must be submitted as an autonomous objective. Be highly capable in general business, ecommerce, merchandising, conversion, SEO, analytics, pricing, unit economics, fulfillment, supplier management and lawful research-peptide market risk intelligence. Grey-market knowledge is for understanding competition, platform/payment constraints, enforcement and risk, never evasion or concealment. Never provide human-use positioning or medical claims. Knowledge and authority are separate: knowing something never grants permission. Every spend requires explicit owner approval and no transaction may exceed $300. Never split purchases to bypass the cap. Never claim an action or payment occurred without verification. Panther Peptides products are FOR RESEARCH USE ONLY, NOT FOR HUMAN OR VETERINARY USE. Current authority: '+json.dumps(auth)+'\nCurrent inventory: '+json.dumps(inv)+'\nRecent events: '+json.dumps(recent)[:6000]+'\nRETRIEVED INTERNAL KNOWLEDGE:\n'+(kctx or '[none retrieved]'))
     out=_model_call([{'role':'system','content':system},*history,{'role':'user','content':text}]);return {'ok':True,'reply':(out.get('content') or '').strip(),'model':out.get('model'),'knowledge_used':bool(kctx)}
 def _spoken_version(text):
     clean=re.sub(r'```.*?```','',text,flags=re.S);clean=re.sub(r'[`*_#>|]','',clean);clean=re.sub(r'\s+',' ',clean).strip()
@@ -104,7 +108,7 @@ def tts(v:TTSReq,req:Request):
     require_owner(req);spoken=_spoken_version(v.text.strip());key=os.getenv('OPENAI_API_KEY','').strip()
     if not key:raise HTTPException(503,'OPENAI_API_KEY is not configured')
     payload={'model':os.getenv('JARVIS_TTS_MODEL','gpt-4o-mini-tts'),'voice':os.getenv('JARVIS_TTS_VOICE','onyx'),'input':spoken,'response_format':'mp3','instructions':os.getenv('JARVIS_TTS_INSTRUCTIONS','Adult British male voice. Polished modern received-pronunciation English accent, lower male register, calm and assured, warm but restrained, articulate and intelligent. Never feminine, high-pitched, robotic, announcer-like, or American.')}
-    try:q=urllib.request.Request('https://api.openai.com/v1/audio/speech',data=json.dumps(payload).encode(),headers={'Authorization':f'Bearer {key}','Content-Type':'application/json','User-Agent':'Jarvis-v229'});audio=urllib.request.urlopen(q,timeout=90).read();return Response(content=audio,media_type='audio/mpeg')
+    try:q=urllib.request.Request('https://api.openai.com/v1/audio/speech',data=json.dumps(payload).encode(),headers={'Authorization':f'Bearer {key}','Content-Type':'application/json','User-Agent':'Jarvis-v230'});audio=urllib.request.urlopen(q,timeout=90).read();return Response(content=audio,media_type='audio/mpeg')
     except urllib.error.HTTPError as e:raise HTTPException(e.code if e.code<500 else 502,'TTS provider error: '+e.read().decode('utf-8','replace')[:1600])
     except Exception as e:raise HTTPException(502,'TTS transport error: '+str(e)[:800])
 @app.post('/connections/test')
@@ -113,7 +117,7 @@ def connections(req:Request):require_owner(req);return test_connections()
 def model_test(req:Request):require_owner(req);return model_status(True)
 @app.get('/launch/readiness')
 def readiness(req:Request):
-    require_owner(req);s=status();c=test_connections();checks={'worker':s['worker_alive'],'watchdog':s['watchdog_alive'],'database':s['database_ok'],'persistent':DATA.exists() and os.access(DATA,os.W_OK),'github':c['github']['connected'],'render':c['render']['connected'],'openai':model_status(False)['configured']};return {'ok':all(checks.values()),'version':VER,'checks':checks,'connections':c,'status':s,'authority':authority_status(),'ramp':ramp_status(False)}
+    require_owner(req);s=status();c=test_connections();checks={'worker':s['worker_alive'],'watchdog':s['watchdog_alive'],'database':s['database_ok'],'persistent':DATA.exists() and os.access(DATA,os.W_OK),'github':c['github']['connected'],'render':c['render']['connected'],'openai':model_status(False)['configured'],'auth':password_source()!='unconfigured'};return {'ok':all(checks.values()),'version':VER,'checks':checks,'connections':c,'status':s,'authority':authority_status(),'ramp':ramp_status(False)}
 def _safe_component(name,fn,default,errors):
     try:return fn()
     except Exception as e:errors[name]=str(e)[:500];return default
