@@ -1,7 +1,7 @@
 import os,hmac,hashlib,secrets,time,base64,sqlite3
 from pathlib import Path
 from fastapi import Request,HTTPException
-DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data')); DATA.mkdir(parents=True,exist_ok=True); DB_PATH=Path(os.getenv('DATABASE_PATH',str(DATA/'operator.db'))); SECRET_FILE=Path(os.getenv('JARVIS_SESSION_SECRET_FILE',str(DATA/'jarvis_session_secret')))
+DATA=Path(os.getenv('JARVIS_DATA_DIR','/app/data')); DATA.mkdir(parents=True,exist_ok=True); DB_PATH=Path(os.getenv('DATABASE_PATH',str(DATA/'operator.db'))); SECRET_FILE=Path(os.getenv('JARVIS_SESSION_SECRET_FILE',str(DATA/'jarvis_session_secret')))
 if SECRET_FILE.exists() and SECRET_FILE.read_text().strip(): SECRET=SECRET_FILE.read_text().strip().encode()
 else:
     SECRET=secrets.token_hex(48).encode(); SECRET_FILE.write_text(SECRET.decode())
@@ -35,8 +35,12 @@ def password_source():
     if _legacy_owner_hash():return 'persistent_legacy_hash'
     if os.getenv('JARVIS_OWNER_PASSWORD'):return 'JARVIS_OWNER_PASSWORD'
     if os.getenv('JARVIS_CLAIM_CODE'):return 'JARVIS_CLAIM_CODE'
-    return 'development_default'
+    if os.getenv('JARVIS_ENV','development').lower()!='production':return 'development_default'
+    return 'unconfigured'
 def verify_password(pw):
     legacy=_legacy_owner_hash()
     if legacy:return _verify_legacy_hash(pw,legacy)
-    expected=os.getenv('JARVIS_OWNER_PASSWORD') or os.getenv('JARVIS_CLAIM_CODE') or 'jarvis'; return hmac.compare_digest(pw,expected)
+    expected=os.getenv('JARVIS_OWNER_PASSWORD') or os.getenv('JARVIS_CLAIM_CODE')
+    if expected:return hmac.compare_digest(pw,expected)
+    if os.getenv('JARVIS_ENV','development').lower()!='production':return hmac.compare_digest(pw,'jarvis')
+    return False
