@@ -1,0 +1,62 @@
+name: Jarvis Release Gate
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Jarvis engineering release ID
+        required: false
+        default: manual
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - 'jarvis/self-*'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Compile production runtime
+        run: python -m compileall -q app223 jarvis_boot.py
+      - name: Import production application
+        env:
+          JARVIS_DATA_DIR: /tmp/jarvis-ci
+          DATABASE_PATH: /tmp/jarvis-ci/operator.db
+          JARVIS_SESSION_SECRET_FILE: /tmp/jarvis-ci/session_secret
+          JARVIS_ENV: test
+          JARVIS_COOKIE_SECURE: '0'
+        run: |
+          python - <<'PY'
+          import app223.main as m
+          assert m.VER.startswith('230.')
+          assert m.app is not None
+          print('Jarvis import OK',m.VER)
+          PY
+      - name: Run targeted tests
+        env:
+          JARVIS_DATA_DIR: /tmp/jarvis-test
+          DATABASE_PATH: /tmp/jarvis-test/operator.db
+          JARVIS_SESSION_SECRET_FILE: /tmp/jarvis-test/session_secret
+          JARVIS_ENV: test
+          JARVIS_COOKIE_SECURE: '0'
+        run: pytest -q tests/test_full_operator.py tests/test_day2.py || exit 1
+      - name: Validate deployment contract
+        run: |
+          grep -Fq 'JARVIS_DATA_DIR=/app/data' Dockerfile.render.agent
+          grep -Fq 'healthCheckPath: /health/ready' render.yaml
+          grep -Fq 'JARVIS_RELEASE' render.yaml
+          ! grep -Fq "VER='229.0.0'" Dockerfile.render.agent
+      - name: Validate self-engineering safety contract
+        run: |
+          grep -Fq 'PROTECTED_FILES' app223/self_engineering.py
+          grep -Fq 'CI must pass before staging deployment' app223/self_engineering.py
+          grep -Fq 'Staging verification must pass before production promotion' app223/self_engineering.py
+          grep -Fq 'Owner approval required' app223/self_engineering.py
