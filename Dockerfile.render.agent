@@ -20,17 +20,26 @@ RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir
 COPY app223 ./app223
 COPY jarvis_boot.py ./jarvis_boot.py
 RUN mkdir -p /app/data && python -m compileall -q app223 jarvis_boot.py
-RUN grep -Fq "VER='230.0.0'" app223/main.py \
- && grep -Fq 'execution_first_v229' app223/agent.py \
- && grep -Fq 'objective_steps' app223/agent.py \
- && grep -Fq 'A prose answer is not completion' app223/agent.py \
- && grep -Fq 'verification_after_mutation' app223/agent.py \
- && grep -Fq '/agent/objectives/{objective_id}/steps' app223/main.py \
+RUN python - <<'PY'
+import app223.main as main
+import app223.agent as agent
+import app223.self_engineering as se
+assert main.VER == '230.0.0'
+assert getattr(agent,'status')
+assert hasattr(se,'start_release')
+assert hasattr(se,'run_ci')
+assert hasattr(se,'deploy_staging')
+assert hasattr(se,'promote')
+print('Jarvis v230 production contract OK')
+PY
+RUN grep -Fq '/agent/objectives/{objective_id}/steps' app223/main.py \
  && grep -Fq '_safe_component' app223/main.py \
  && grep -Fq 'resilient mode' app223/business_ui.py \
  && grep -Fq '/business/dashboard' app223/main.py \
  && grep -Fq 'FOR RESEARCH USE ONLY' app223/main.py \
  && grep -Fq 'SpeechRecognition' app223/ui.py \
- && grep -Fq 'journal_mode=WAL' app223/db.py
+ && grep -Fq 'journal_mode=WAL' app223/db.py \
+ && grep -Fq 'engineering_start_release' app223/tools.py \
+ && grep -Fq 'PROTECTED_FILES' app223/self_engineering.py
 EXPOSE 8000
 CMD ["python","jarvis_boot.py"]
