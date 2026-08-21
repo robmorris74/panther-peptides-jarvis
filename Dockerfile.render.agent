@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir
 COPY app223 ./app223
 COPY jarvis_boot.py ./jarvis_boot.py
 RUN mkdir -p /app/data && python -m compileall -q app223 jarvis_boot.py
-RUN grep -Fq "VER='230.0.0'" app223/main.py \
+RUN grep -Fq "VER='229.0.0'" app223/main.py \
  && grep -Fq 'execution_first_v229' app223/agent.py \
  && grep -Fq 'objective_steps' app223/agent.py \
  && grep -Fq 'A prose answer is not completion' app223/agent.py \
