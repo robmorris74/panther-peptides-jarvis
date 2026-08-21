@@ -13,7 +13,7 @@ from .authority import ensure_authority_schema,status as authority_status,spend_
 from .ramp import status as ramp_status,list_virtual_cards
 from .ui_nav import HTML
 from .business_ui import BUSINESS_HTML
-VER='228.4.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
+VER='229.0.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
 class Login(BaseModel):password:str
 class Cmd(BaseModel):text:str;request_id:str|None=None
 class ChatTurn(BaseModel):role:str;content:str
@@ -54,6 +54,8 @@ def agent_wake(req:Request):require_owner(req);return wake()
 def objectives(req:Request):require_owner(req);return execute('SELECT * FROM objectives ORDER BY id DESC LIMIT 50',fetch=True)
 @app.get('/agent/activity')
 def activity(req:Request):require_owner(req);return execute('SELECT * FROM activity ORDER BY id DESC LIMIT 120',fetch=True)
+@app.get('/agent/objectives/{objective_id}/steps')
+def objective_steps(objective_id:int,req:Request):require_owner(req);return {'ok':True,'steps':execute('SELECT * FROM objective_steps WHERE objective_id=? ORDER BY id DESC LIMIT 200',(objective_id,),True)}
 @app.get('/agent/approval')
 def approval(req:Request):require_owner(req);return {'ok':True,'approval':pending_approval()}
 @app.post('/agent/approval/{approval_id}')
@@ -79,7 +81,7 @@ def command(v:Cmd,req:Request):
     if v.request_id:
         old=one('SELECT response_json FROM command_receipts WHERE request_id=?',(v.request_id,))
         if old:return json.loads(old['response_json'])
-    oid=create_objective(text);result={'ok':True,'objective_id':oid,'message':f'Objective #{oid} queued. Jarvis v228 will execute autonomously within authority and ask one approval question only when required.'}
+    oid=create_objective(text);result={'ok':True,'objective_id':oid,'message':f'Objective #{oid} queued in Jarvis v229 execution engine. Jarvis will act, verify, continue autonomously, and only stop for a genuine blocker or required approval.'}
     if v.request_id:execute('INSERT OR REPLACE INTO command_receipts(request_id,response_json) VALUES(?,?)',(v.request_id,json.dumps(result)))
     return result
 @app.post('/assistant/message')
@@ -87,7 +89,7 @@ def assistant_message(v:ChatReq,req:Request):
     require_owner(req);text=v.message.strip()
     if not text:raise HTTPException(400,'Empty message')
     history=[{'role':t.role,'content':t.content[:4000]} for t in v.history[-12:] if t.role in ('user','assistant') and t.content.strip()];inv=dashboard_summary();kctx=knowledge_context(text);recent=events()[:8];auth=authority_status()
-    system=('You are Jarvis v228, owner-facing chief operating and ecommerce intelligence for Panther Peptides. Be highly capable in general business, ecommerce, merchandising, conversion, SEO, analytics, pricing, unit economics, fulfillment, supplier management and lawful research-peptide market risk intelligence. Grey-market knowledge is for understanding competition, platform/payment constraints, enforcement and risk, never evasion or concealment. Never provide human-use positioning or medical claims. Knowledge and authority are separate: knowing something never grants permission. Every spend requires explicit owner approval and no transaction may exceed $300. Never split purchases to bypass the cap. Ramp is the selected spending provider. Never request, display, log or store a card PAN or CVV. Never claim an action or payment occurred without verification. Panther Peptides products are FOR RESEARCH USE ONLY, NOT FOR HUMAN OR VETERINARY USE. For multi-step execution, use an autonomous objective. Current authority: '+json.dumps(auth)+'\nCurrent inventory: '+json.dumps(inv)+'\nRecent events: '+json.dumps(recent)[:6000]+'\nRETRIEVED INTERNAL KNOWLEDGE:\n'+(kctx or '[none retrieved]'))
+    system=('You are Jarvis v229, owner-facing chief operating and ecommerce intelligence for Panther Peptides. Conversation is for discussion and decisions; actionable multi-step work must be submitted as an autonomous objective. Be highly capable in general business, ecommerce, merchandising, conversion, SEO, analytics, pricing, unit economics, fulfillment, supplier management and lawful research-peptide market risk intelligence. Grey-market knowledge is for understanding competition, platform/payment constraints, enforcement and risk, never evasion or concealment. Never provide human-use positioning or medical claims. Knowledge and authority are separate: knowing something never grants permission. Every spend requires explicit owner approval and no transaction may exceed $300. Never split purchases to bypass the cap. Never claim an action or payment occurred without verification. Panther Peptides products are FOR RESEARCH USE ONLY, NOT FOR HUMAN OR VETERINARY USE. Current authority: '+json.dumps(auth)+'\nCurrent inventory: '+json.dumps(inv)+'\nRecent events: '+json.dumps(recent)[:6000]+'\nRETRIEVED INTERNAL KNOWLEDGE:\n'+(kctx or '[none retrieved]'))
     out=_model_call([{'role':'system','content':system},*history,{'role':'user','content':text}]);return {'ok':True,'reply':(out.get('content') or '').strip(),'model':out.get('model'),'knowledge_used':bool(kctx)}
 def _spoken_version(text):
     clean=re.sub(r'```.*?```','',text,flags=re.S);clean=re.sub(r'[`*_#>|]','',clean);clean=re.sub(r'\s+',' ',clean).strip()
@@ -102,7 +104,7 @@ def tts(v:TTSReq,req:Request):
     require_owner(req);spoken=_spoken_version(v.text.strip());key=os.getenv('OPENAI_API_KEY','').strip()
     if not key:raise HTTPException(503,'OPENAI_API_KEY is not configured')
     payload={'model':os.getenv('JARVIS_TTS_MODEL','gpt-4o-mini-tts'),'voice':os.getenv('JARVIS_TTS_VOICE','onyx'),'input':spoken,'response_format':'mp3','instructions':os.getenv('JARVIS_TTS_INSTRUCTIONS','Adult British male voice. Polished modern received-pronunciation English accent, lower male register, calm and assured, warm but restrained, articulate and intelligent. Never feminine, high-pitched, robotic, announcer-like, or American.')}
-    try:q=urllib.request.Request('https://api.openai.com/v1/audio/speech',data=json.dumps(payload).encode(),headers={'Authorization':f'Bearer {key}','Content-Type':'application/json','User-Agent':'Jarvis-v228'});audio=urllib.request.urlopen(q,timeout=90).read();return Response(content=audio,media_type='audio/mpeg')
+    try:q=urllib.request.Request('https://api.openai.com/v1/audio/speech',data=json.dumps(payload).encode(),headers={'Authorization':f'Bearer {key}','Content-Type':'application/json','User-Agent':'Jarvis-v229'});audio=urllib.request.urlopen(q,timeout=90).read();return Response(content=audio,media_type='audio/mpeg')
     except urllib.error.HTTPError as e:raise HTTPException(e.code if e.code<500 else 502,'TTS provider error: '+e.read().decode('utf-8','replace')[:1600])
     except Exception as e:raise HTTPException(502,'TTS transport error: '+str(e)[:800])
 @app.post('/connections/test')
@@ -119,16 +121,13 @@ def _safe_component(name,fn,default,errors):
 def business_dashboard(req:Request):
     require_owner(req);errors={}
     summary=_safe_component('summary',dashboard_summary,{'lots':0,'units':0,'quarantined_units':0,'released_units':0,'lots_missing_or_unknown_docs':0},errors)
-    inventory=_safe_component('inventory',inventory_rows,[],errors)
-    business_events=_safe_component('events',events,[],errors)
+    inventory=_safe_component('inventory',inventory_rows,[],errors);business_events=_safe_component('events',events,[],errors)
     objectives=_safe_component('objectives',lambda:execute('SELECT * FROM objectives ORDER BY id DESC LIMIT 30',fetch=True),[],errors)
     activity_rows=_safe_component('activity',lambda:execute('SELECT * FROM activity ORDER BY id DESC LIMIT 60',fetch=True),[],errors)
     runtime=_safe_component('runtime',status,{'worker_alive':False,'watchdog_alive':False,'queued':0,'running':0,'blocked':0,'awaiting_approval':0,'completed':0},errors)
     knowledge=_safe_component('knowledge',knowledge_stats,{'files':0,'bytes':0,'characters':0,'categories':[]},errors)
-    approval=_safe_component('approval',pending_approval,None,errors)
-    authority=_safe_component('authority',authority_status,{'payment_provider':'Ramp','max_spend_per_transaction':300,'spend_requires_owner_approval':True},errors)
-    ledger_rows=_safe_component('spend_ledger',lambda:spend_ledger(20),[],errors)
-    return {'ok':True,'version':VER,'summary':summary,'inventory':inventory,'events':business_events,'objectives':objectives,'activity':activity_rows,'runtime':runtime,'knowledge':knowledge,'approval':approval,'authority':authority,'spend_ledger':ledger_rows,'component_errors':errors,'degraded_components':list(errors.keys())}
+    approval=_safe_component('approval',pending_approval,None,errors);auth=_safe_component('authority',authority_status,{'max_spend_per_transaction':300,'spend_requires_owner_approval':True},errors);ledger_rows=_safe_component('spend_ledger',lambda:spend_ledger(20),[],errors)
+    return {'ok':True,'version':VER,'summary':summary,'inventory':inventory,'events':business_events,'objectives':objectives,'activity':activity_rows,'runtime':runtime,'knowledge':knowledge,'approval':approval,'authority':auth,'spend_ledger':ledger_rows,'component_errors':errors,'degraded_components':list(errors.keys())}
 @app.get('/business/inventory')
 def business_inventory(req:Request):require_owner(req);return {'ok':True,'items':inventory_rows(),'summary':dashboard_summary()}
 @app.post('/business/inventory/import-legacy')
