@@ -32,15 +32,15 @@ def _legacy_owner_hash():
         con=sqlite3.connect(DB_PATH,timeout=5); con.row_factory=sqlite3.Row; row=con.execute("SELECT value FROM company_settings WHERE key='owner_password_hash'").fetchone(); con.close(); return row['value'] if row and row['value'] else ''
     except (sqlite3.Error,OSError,KeyError):return ''
 def password_source():
-    if _legacy_owner_hash():return 'persistent_legacy_hash'
     if os.getenv('JARVIS_OWNER_PASSWORD'):return 'JARVIS_OWNER_PASSWORD'
     if os.getenv('JARVIS_CLAIM_CODE'):return 'JARVIS_CLAIM_CODE'
+    if _legacy_owner_hash():return 'persistent_legacy_hash'
     if os.getenv('JARVIS_ENV','development').lower()!='production':return 'development_default'
     return 'unconfigured'
 def verify_password(pw):
-    legacy=_legacy_owner_hash()
-    if legacy:return _verify_legacy_hash(pw,legacy)
     expected=os.getenv('JARVIS_OWNER_PASSWORD') or os.getenv('JARVIS_CLAIM_CODE')
     if expected:return hmac.compare_digest(pw,expected)
+    legacy=_legacy_owner_hash()
+    if legacy:return _verify_legacy_hash(pw,legacy)
     if os.getenv('JARVIS_ENV','development').lower()!='production':return hmac.compare_digest(pw,'jarvis')
     return False
