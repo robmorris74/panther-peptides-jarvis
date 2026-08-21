@@ -3,19 +3,24 @@ services:
     name: panther-peptides-jarvis
     runtime: docker
     plan: starter
-    healthCheckPath: /health
-    autoDeploy: false
+    dockerfilePath: ./Dockerfile.render.agent
+    healthCheckPath: /health/ready
+    autoDeploy: true
     disk:
       name: jarvis-data
       mountPath: /app/data
       sizeGB: 1
     envVars:
+      - key: JARVIS_DATA_DIR
+        value: /app/data
       - key: DATABASE_PATH
         value: /app/data/operator.db
       - key: JARVIS_SESSION_DB
         value: /app/data/jarvis_sessions.db
       - key: JARVIS_CONFIG_PATH
         value: /app/data/jarvis.env
+      - key: JARVIS_SESSION_SECRET_FILE
+        value: /app/data/jarvis_session_secret
       - key: JARVIS_SESSION_SECRET
         generateValue: true
       - key: JARVIS_BOOTSTRAP_TOKEN
@@ -24,7 +29,8 @@ services:
         value: true
       - key: JARVIS_ENV
         value: production
-      # Optional after first deploy: set JARVIS_PUBLIC_URL to the final private HTTPS origin.
+      - key: JARVIS_RELEASE
+        value: 230.0.0
       - key: OPENAI_API_KEY
         sync: false
       - key: SHOPIFY_STORE_DOMAIN
