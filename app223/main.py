@@ -13,7 +13,7 @@ from .authority import ensure_authority_schema,status as authority_status,spend_
 from .ramp import status as ramp_status,list_virtual_cards
 from .ui_nav import HTML
 from .business_ui import BUSINESS_HTML
-VER='228.3.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
+VER='228.4.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/var/data'));app=FastAPI(title='Jarvis',version=VER)
 class Login(BaseModel):password:str
 class Cmd(BaseModel):text:str;request_id:str|None=None
 class ChatTurn(BaseModel):role:str;content:str
@@ -112,8 +112,23 @@ def model_test(req:Request):require_owner(req);return model_status(True)
 @app.get('/launch/readiness')
 def readiness(req:Request):
     require_owner(req);s=status();c=test_connections();checks={'worker':s['worker_alive'],'watchdog':s['watchdog_alive'],'database':s['database_ok'],'persistent':DATA.exists() and os.access(DATA,os.W_OK),'github':c['github']['connected'],'render':c['render']['connected'],'openai':model_status(False)['configured']};return {'ok':all(checks.values()),'version':VER,'checks':checks,'connections':c,'status':s,'authority':authority_status(),'ramp':ramp_status(False)}
+def _safe_component(name,fn,default,errors):
+    try:return fn()
+    except Exception as e:errors[name]=str(e)[:500];return default
 @app.get('/business/dashboard')
-def business_dashboard(req:Request):require_owner(req);return {'ok':True,'summary':dashboard_summary(),'inventory':inventory_rows(),'events':events(),'objectives':execute('SELECT * FROM objectives ORDER BY id DESC LIMIT 30',fetch=True),'activity':execute('SELECT * FROM activity ORDER BY id DESC LIMIT 60',fetch=True),'runtime':status(),'knowledge':knowledge_stats(),'approval':pending_approval(),'authority':authority_status(),'spend_ledger':spend_ledger(20)}
+def business_dashboard(req:Request):
+    require_owner(req);errors={}
+    summary=_safe_component('summary',dashboard_summary,{'lots':0,'units':0,'quarantined_units':0,'released_units':0,'lots_missing_or_unknown_docs':0},errors)
+    inventory=_safe_component('inventory',inventory_rows,[],errors)
+    business_events=_safe_component('events',events,[],errors)
+    objectives=_safe_component('objectives',lambda:execute('SELECT * FROM objectives ORDER BY id DESC LIMIT 30',fetch=True),[],errors)
+    activity_rows=_safe_component('activity',lambda:execute('SELECT * FROM activity ORDER BY id DESC LIMIT 60',fetch=True),[],errors)
+    runtime=_safe_component('runtime',status,{'worker_alive':False,'watchdog_alive':False,'queued':0,'running':0,'blocked':0,'awaiting_approval':0,'completed':0},errors)
+    knowledge=_safe_component('knowledge',knowledge_stats,{'files':0,'bytes':0,'characters':0,'categories':[]},errors)
+    approval=_safe_component('approval',pending_approval,None,errors)
+    authority=_safe_component('authority',authority_status,{'payment_provider':'Ramp','max_spend_per_transaction':300,'spend_requires_owner_approval':True},errors)
+    ledger_rows=_safe_component('spend_ledger',lambda:spend_ledger(20),[],errors)
+    return {'ok':True,'version':VER,'summary':summary,'inventory':inventory,'events':business_events,'objectives':objectives,'activity':activity_rows,'runtime':runtime,'knowledge':knowledge,'approval':approval,'authority':authority,'spend_ledger':ledger_rows,'component_errors':errors,'degraded_components':list(errors.keys())}
 @app.get('/business/inventory')
 def business_inventory(req:Request):require_owner(req);return {'ok':True,'items':inventory_rows(),'summary':dashboard_summary()}
 @app.post('/business/inventory/import-legacy')
