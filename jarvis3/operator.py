@@ -29,10 +29,14 @@ def create_objective(detail,priority=50):
 def list_objectives(limit=50):
     with _db() as c:return [dict(r) for r in c.execute('SELECT * FROM objectives ORDER BY id DESC LIMIT ?',(limit,)).fetchall()]
 
+def list_activity(limit=50):
+    with _db() as c:
+        rows=c.execute('''SELECT s.*,o.title objective_title FROM objective_steps s LEFT JOIN objectives o ON o.id=s.objective_id ORDER BY s.id DESC LIMIT ?''',(limit,)).fetchall()
+    return [dict(r) for r in rows]
+
 def get_objective(oid):
     with _db() as c:
-        r=c.execute('SELECT * FROM objectives WHERE id=?',(oid,)).fetchone()
-        steps=c.execute('SELECT * FROM objective_steps WHERE objective_id=? ORDER BY id ASC',(oid,)).fetchall()
+        r=c.execute('SELECT * FROM objectives WHERE id=?',(oid,)).fetchone();steps=c.execute('SELECT * FROM objective_steps WHERE objective_id=? ORDER BY id ASC',(oid,)).fetchall()
     return {'objective':dict(r) if r else None,'steps':[dict(x) for x in steps]}
 
 def pending_approval():
@@ -51,8 +55,7 @@ def _claim():
     with _db() as c:
         r=c.execute("SELECT * FROM objectives WHERE state='queued' ORDER BY priority DESC,id ASC LIMIT 1").fetchone()
         if not r:return None
-        c.execute("UPDATE objectives SET state='running',updated_at=CURRENT_TIMESTAMP WHERE id=?",(r['id'],))
-        return dict(r)
+        c.execute("UPDATE objectives SET state='running',updated_at=CURRENT_TIMESTAMP WHERE id=?",(r['id'],));return dict(r)
 
 def _approved_actions(oid):
     with _db() as c:return [dict(r) for r in c.execute("SELECT action,status FROM approvals WHERE objective_id=? AND status IN ('approved','denied') ORDER BY id",(oid,)).fetchall()]
@@ -71,22 +74,14 @@ def _request_approval(oid,action,question):
     with _db() as c:
         existing=c.execute("SELECT id FROM approvals WHERE objective_id=? AND action=? AND status='pending'",(oid,action)).fetchone()
         if existing:return existing['id']
-        cur=c.execute('INSERT INTO approvals(objective_id,action,question) VALUES(?,?,?)',(oid,action,question[:1000]));aid=cur.lastrowid
-        c.execute("UPDATE objectives SET state='awaiting_approval',blocked_reason='owner_approval',updated_at=CURRENT_TIMESTAMP WHERE id=?",(oid,))
+        cur=c.execute('INSERT INTO approvals(objective_id,action,question) VALUES(?,?,?)',(oid,action,question[:1000]));aid=cur.lastrowid;c.execute("UPDATE objectives SET state='awaiting_approval',blocked_reason='owner_approval',updated_at=CURRENT_TIMESTAMP WHERE id=?",(oid,))
     return aid
 
 def _run(obj):
     global _current,_heartbeat
     oid=obj['id'];_current=oid
-    system='''You are Jarvis 3, an execution-first business operating agent. The owner gives objectives, not questions. Your job is to use available tools to perform real work, record operational tasks, and verify results. A prose answer is never completion when an action is possible. Continue until the objective is accomplished or an exact missing connector/credential/owner approval blocks execution.
-
-Current tools are intentionally limited. Use them fully, but never claim capabilities you do not have. You can currently operate Render infrastructure and persistent business tasks/decisions. If the objective needs Shopify, banking, email, accounting, inventory purchasing, marketing platforms, supplier portals, customer support systems, or another missing system, create concrete persistent business tasks for the missing setup, then finish as BLOCKED with the exact connector required rather than pretending the business action occurred.
-
-For infrastructure changes such as render_deploy, require owner approval first unless the approval history explicitly contains approval for that exact action. For internal reversible task creation/update and business decision recording, proceed without approval. After every mutation, use an appropriate verification tool. Do not mark complete without post-action verification evidence.
-
-When truly complete, respond with COMPLETE: followed by a concise outcome. When execution cannot continue because a capability is missing, respond with BLOCKED: followed by the exact connector, credential, or owner decision required.'''
-    messages=[{'role':'system','content':system+'\nApproval history: '+json.dumps(_approved_actions(oid))},{'role':'user','content':obj['detail']}]
-    mutations=0;verified=False
+    system='''You are Jarvis 3, an execution-first business operating agent. The owner gives objectives, not questions. Your job is to use available tools to perform real work, record operational tasks, and verify results. A prose answer is never completion when an action is possible. Continue until the objective is accomplished or an exact missing connector/credential/owner approval blocks execution. Current tools are intentionally limited. Use them fully, but never claim capabilities you do not have. You can currently operate Render infrastructure and persistent business tasks/decisions. If the objective needs Shopify, banking, email, accounting, inventory purchasing, marketing platforms, supplier portals, customer support systems, or another missing system, create concrete persistent business tasks for the missing setup, then finish as BLOCKED with the exact connector required rather than pretending the business action occurred. For infrastructure changes such as render_deploy, require owner approval first unless the approval history explicitly contains approval for that exact action. For internal reversible task creation/update and business decision recording, proceed without approval. After every mutation, use an appropriate verification tool. Do not mark complete without post-action verification evidence. When truly complete, respond with COMPLETE: followed by a concise outcome. When execution cannot continue because a capability is missing, respond with BLOCKED: followed by the exact connector, credential, or owner decision required.'''
+    messages=[{'role':'system','content':system+'\nApproval history: '+json.dumps(_approved_actions(oid))},{'role':'user','content':obj['detail']}];mutations=0;verified=False
     for cycle in range(1,31):
         _heartbeat=time.time()
         with _db() as c:c.execute('UPDATE objectives SET step=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',(cycle,oid))
@@ -103,16 +98,11 @@ When truly complete, respond with COMPLETE: followed by a concise outcome. When 
                 except:args={}
                 _step(oid,cycle,'tool','started',json.dumps(args),name)
                 if name=='render_deploy':
-                    action='render_deploy:'+str(args.get('service_id') or '')
-                    approvals=_approved_actions(oid);approved=any(x['action']==action and x['status']=='approved' for x in approvals)
-                    denied=any(x['action']==action and x['status']=='denied' for x in approvals)
-                    if denied:
-                        result={'ok':False,'error':'Owner denied '+action}
+                    action='render_deploy:'+str(args.get('service_id') or '');approvals=_approved_actions(oid);approved=any(x['action']==action and x['status']=='approved' for x in approvals);denied=any(x['action']==action and x['status']=='denied' for x in approvals)
+                    if denied:result={'ok':False,'error':'Owner denied '+action}
                     elif not approved:
-                        aid=_request_approval(oid,action,'Approve Jarvis deploying Render service '+str(args.get('service_id'))+'?')
-                        _step(oid,cycle,'approval','pending',json.dumps({'approval_id':aid,'action':action}),name);_current=None;return
-                    else:
-                        result=run_tool(name,args)
+                        aid=_request_approval(oid,action,'Approve Jarvis deploying Render service '+str(args.get('service_id'))+'?');_step(oid,cycle,'approval','pending',json.dumps({'approval_id':aid,'action':action}),name);_current=None;return
+                    else:result=run_tool(name,args)
                 else:
                     try:result=run_tool(name,args)
                     except Exception as e:result={'ok':False,'error':str(e)}
@@ -121,13 +111,11 @@ When truly complete, respond with COMPLETE: followed by a concise outcome. When 
                     evidence(oid,name,result)
                     if name in MUTATING:mutations+=1;verified=False
                     elif mutations and name in VERIFYING:verified=True
-                _step(oid,cycle,'tool','success' if ok else 'failed',json.dumps(result,default=str),name)
-                messages.append({'role':'tool','tool_call_id':tc['id'],'content':json.dumps(result,default=str)})
+                _step(oid,cycle,'tool','success' if ok else 'failed',json.dumps(result,default=str),name);messages.append({'role':'tool','tool_call_id':tc['id'],'content':json.dumps(result,default=str)})
             continue
         text=(out['content'] or '').strip()
         if text.startswith('COMPLETE:'):
-            if mutations and not verified:
-                messages.extend([{'role':'assistant','content':text},{'role':'user','content':'Verification is still required after the last mutation. Use a verification tool before completing.'}]);continue
+            if mutations and not verified:messages.extend([{'role':'assistant','content':text},{'role':'user','content':'Verification is still required after the last mutation. Use a verification tool before completing.'}]);continue
             with _db() as c:c.execute("UPDATE objectives SET state='completed',result=?,completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?",(text[9:].strip(),oid))
             _step(oid,cycle,'objective','completed',text);_current=None;return
         if text.startswith('BLOCKED:'):
@@ -150,6 +138,5 @@ def start():
     if not _thread or not _thread.is_alive():_thread=threading.Thread(target=_loop,name='jarvis3-operator',daemon=True);_thread.start()
 
 def status():
-    with _db() as c:
-        counts={s:c.execute('SELECT COUNT(*) n FROM objectives WHERE state=?',(s,)).fetchone()['n'] for s in ['queued','running','awaiting_approval','blocked','completed']}
+    with _db() as c:counts={s:c.execute('SELECT COUNT(*) n FROM objectives WHERE state=?',(s,)).fetchone()['n'] for s in ['queued','running','awaiting_approval','blocked','completed']}
     return {'worker_alive':bool(_thread and _thread.is_alive()),'current_objective':_current,'heartbeat_age':round(time.time()-_heartbeat,1) if _heartbeat else None,**counts}
