@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: jarvis-staging
+    runtime: docker
+    plan: starter
+    branch: jarvis-3-clean-rebuild
+    dockerfilePath: ./jarvis3/Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    disk:
+      name: jarvis3-staging-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: JARVIS3_DATA_DIR
+        value: /app/data
+      - key: JARVIS_COOKIE_SECURE
+        value: "1"
+      - key: JARVIS_MODEL
+        value: gpt-5-mini
+      - key: JARVIS_OWNER_PASSWORD
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
