@@ -1,0 +1,34 @@
+name: Jarvis 3 CI
+on:
+  push:
+    branches: [jarvis-3-clean-rebuild]
+    paths: ['jarvis3/**','.github/workflows/jarvis3-ci.yml']
+  pull_request:
+    paths: ['jarvis3/**','.github/workflows/jarvis3-ci.yml']
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r jarvis3/requirements.txt
+      - name: Compile
+        run: python -m py_compile jarvis3/app.py
+      - name: Import and initialize
+        env:
+          JARVIS3_DATA_DIR: /tmp/jarvis3-ci
+          JARVIS_OWNER_PASSWORD: ci-password
+          OPENAI_API_KEY: test-key
+        run: |
+          PYTHONPATH=jarvis3 python - <<'PY'
+          import app
+          assert app.VERSION.startswith('3.')
+          assert app.DB.exists()
+          assert app.health()['ok'] is True
+          assert app.ready()['ok'] is True
+          print(app.health())
+          PY
+      - name: Docker build
+        run: docker build -f jarvis3/Dockerfile -t jarvis3-ci .
