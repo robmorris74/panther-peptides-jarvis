@@ -1,11 +1,11 @@
-import os, sqlite3, secrets, hmac, hashlib, time
+import os, sqlite3, secrets, hmac, hashlib, time, json, urllib.request, urllib.error
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from openai import OpenAI
 
-VERSION='3.0.0-alpha.1'
+VERSION='3.0.0-alpha.2'
 DATA=Path(os.getenv('JARVIS3_DATA_DIR','/app/data')); DATA.mkdir(parents=True,exist_ok=True)
 DB=DATA/'jarvis3.db'; SECRET_FILE=DATA/'jarvis3_session_secret'
 if SECRET_FILE.exists(): SECRET=SECRET_FILE.read_text().strip().encode()
@@ -34,13 +34,29 @@ def owner(req):
     if not valid(req.cookies.get(COOKIE,'')): raise HTTPException(401,'Owner authentication required')
 def configured(): return bool(os.getenv('JARVIS_OWNER_PASSWORD') and os.getenv('OPENAI_API_KEY'))
 
+def render_request(path,method='GET',payload=None):
+    key=os.getenv('RENDER_API_KEY','').strip()
+    if not key:return 0,{'error':'RENDER_API_KEY is not configured'}
+    data=None if payload is None else json.dumps(payload).encode()
+    req=urllib.request.Request('https://api.render.com/v1/'+path.lstrip('/'),data=data,method=method,headers={'Authorization':f'Bearer {key}','Accept':'application/json','Content-Type':'application/json','User-Agent':'Jarvis3'})
+    try:
+        with urllib.request.urlopen(req,timeout=20) as r:
+            raw=r.read().decode('utf-8','replace');return r.status,(json.loads(raw) if raw else {})
+    except urllib.error.HTTPError as e:
+        raw=e.read().decode('utf-8','replace')
+        try:body=json.loads(raw)
+        except:body={'error':raw[:1000]}
+        return e.code,body
+    except Exception as e:return 0,{'error':str(e)}
+
 class Login(BaseModel): password:str
 class Chat(BaseModel): message:str
+class Deploy(BaseModel): service_id:str|None=None; clear_cache:bool=False
 
 @app.get('/health')
 def health(): return {'ok':True,'service':'jarvis3','version':VERSION}
 @app.get('/ready')
-def ready(): return {'ok':configured(),'version':VERSION,'checks':{'owner_password':bool(os.getenv('JARVIS_OWNER_PASSWORD')),'openai':bool(os.getenv('OPENAI_API_KEY')),'database':DB.exists()}}
+def ready(): return {'ok':configured(),'version':VERSION,'checks':{'owner_password':bool(os.getenv('JARVIS_OWNER_PASSWORD')),'openai':bool(os.getenv('OPENAI_API_KEY')),'database':DB.exists(),'render_key':bool(os.getenv('RENDER_API_KEY'))}}
 @app.post('/api/login')
 def login(x:Login):
     expected=os.getenv('JARVIS_OWNER_PASSWORD','')
@@ -50,7 +66,7 @@ def login(x:Login):
 def logout():
     r=JSONResponse({'ok':True}); r.delete_cookie(COOKIE); return r
 @app.get('/api/status')
-def status(req:Request): owner(req); return {'ok':True,'version':VERSION,'database':str(DB),'model':os.getenv('JARVIS_MODEL','gpt-5-mini')}
+def status(req:Request): owner(req); return {'ok':True,'version':VERSION,'database':str(DB),'model':os.getenv('JARVIS_MODEL','gpt-5-mini'),'render_configured':bool(os.getenv('RENDER_API_KEY'))}
 @app.post('/api/chat')
 def chat(x:Chat,req:Request):
     owner(req); text=x.message.strip()
@@ -63,6 +79,24 @@ def chat(x:Chat,req:Request):
     answer=response.output_text
     with db() as c:c.execute('INSERT INTO messages(role,content) VALUES(?,?)',('assistant',answer))
     return {'ok':True,'answer':answer}
+
+@app.get('/api/render/status')
+def render_status(req:Request):
+    owner(req);st,body=render_request('services?limit=20')
+    services=[]
+    if st==200 and isinstance(body,list):
+        for item in body:
+            svc=item.get('service',item) if isinstance(item,dict) else {}
+            services.append({'id':svc.get('id'),'name':svc.get('name'),'type':svc.get('type'),'suspended':svc.get('suspended'),'serviceDetails':{'url':(svc.get('serviceDetails') or {}).get('url'),'region':(svc.get('serviceDetails') or {}).get('region')}})
+    return {'ok':st==200,'status':st,'configured':bool(os.getenv('RENDER_API_KEY')),'services':services,'error':None if st==200 else body}
+
+@app.post('/api/render/deploy')
+def render_deploy(x:Deploy,req:Request):
+    owner(req);sid=(x.service_id or os.getenv('RENDER_STAGING_SERVICE_ID','')).strip()
+    if not sid:raise HTTPException(400,'No staging service ID configured')
+    payload={'clearCache':'clear'} if x.clear_cache else {}
+    st,body=render_request(f'services/{sid}/deploys','POST',payload)
+    return JSONResponse({'ok':st in (200,201,202),'status':st,'service_id':sid,'deploy':body},status_code=200 if st in (200,201,202) else 502)
 
 PAGE='''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jarvis 3</title><style>body{font-family:system-ui;background:#090d12;color:#e8edf3;margin:0}main{max-width:900px;margin:60px auto;padding:24px}.card{background:#111821;border:1px solid #263241;border-radius:18px;padding:24px}input,textarea,button{font:inherit;border-radius:10px;border:1px solid #334154;padding:12px;background:#0b1118;color:#fff}textarea{width:100%;box-sizing:border-box;min-height:100px}button{cursor:pointer}.muted{color:#94a3b8}.msg{padding:12px 0;border-bottom:1px solid #202b37}#app{display:none}</style></head><body><main><h1>JARVIS <span class="muted">3.0</span></h1><section id="login" class="card"><h2>Owner Login</h2><input id="pw" type="password" placeholder="Password"><button onclick="login()">Sign in</button><p id="err" class="muted"></p></section><section id="app" class="card"><div id="messages"></div><textarea id="text" placeholder="Tell Jarvis what you need..."></textarea><button onclick="send()">Send</button> <button onclick="logout()">Logout</button></section></main><script>async function login(){let r=await fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:pw.value})});if(r.ok){login.style.display='none';app.style.display='block'}else err.textContent='Login failed'}async function send(){let v=text.value.trim();if(!v)return;messages.innerHTML+='<div class="msg"><b>You</b><br>'+esc(v)+'</div>';text.value='';let r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:v})});let d=await r.json();messages.innerHTML+='<div class="msg"><b>Jarvis</b><br>'+esc(d.answer||d.detail||'Error')+'</div>'}async function logout(){await fetch('/api/logout',{method:'POST'});location.reload()}function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</script></body></html>'''
 @app.get('/',response_class=HTMLResponse)
