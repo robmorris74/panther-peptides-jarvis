@@ -1,12 +1,12 @@
 import os,secrets,hmac,hashlib,time
 from pathlib import Path
 from fastapi import FastAPI,Request,HTTPException,UploadFile,File,Form
-from fastapi.responses import HTMLResponse,JSONResponse
+from fastapi.responses import HTMLResponse,JSONResponse,FileResponse
 from pydantic import BaseModel
-from . import operator,store
+from . import operator,store,attachments
 from .ops import list_tasks,render_services
 from .ui import PAGE
-VERSION='3.2.1-business-os.242';RELEASE='BUSINESS-OS-242';DATA=Path(os.getenv('JARVIS3_DATA_DIR','/app/data'));DATA.mkdir(parents=True,exist_ok=True);SECRET_FILE=DATA/'jarvis3_session_secret'
+VERSION='3.3.0-business-os.243';RELEASE='BUSINESS-OS-243';DATA=Path(os.getenv('JARVIS3_DATA_DIR','/app/data'));DATA.mkdir(parents=True,exist_ok=True);SECRET_FILE=DATA/'jarvis3_session_secret'
 if SECRET_FILE.exists():SECRET=SECRET_FILE.read_text().strip().encode()
 else:SECRET=secrets.token_hex(48).encode();SECRET_FILE.write_text(SECRET.decode())
 COOKIE='jarvis3_owner';app=FastAPI(title='Panther Peptides - Jarvis Business OS',version=VERSION)
@@ -33,7 +33,7 @@ def startup():operator.start()
 @app.get('/health')
 def health():return {'ok':True,'service':'jarvis-business-os','version':VERSION,'release':RELEASE,'operator':operator.status()}
 @app.get('/version')
-def version():return {'version':VERSION,'release':RELEASE,'dashboard':'executive-business','jarvis_led':True,'typing_fix':True}
+def version():return {'version':VERSION,'release':RELEASE,'dashboard':'executive-business','jarvis_led':True,'typing_fix':True,'attachments':True}
 @app.get('/ready')
 def ready():return {'ok':bool(os.getenv('JARVIS_OWNER_PASSWORD') and os.getenv('OPENAI_API_KEY')),'version':VERSION,'release':RELEASE,'checks':{'owner_password':bool(os.getenv('JARVIS_OWNER_PASSWORD')),'openai':bool(os.getenv('OPENAI_API_KEY')),'render_key':bool(os.getenv('RENDER_API_KEY')),'github_token':bool(os.getenv('GITHUB_TOKEN')),'operator':operator.status()}}
 @app.post('/api/login')
@@ -45,7 +45,7 @@ def login(x:Login):
 def logout():r=JSONResponse({'ok':True});r.delete_cookie(COOKIE);return r
 @app.get('/api/dashboard')
 def dashboard(req:Request):
- owner(req);return {'ok':True,'version':VERSION,'release':RELEASE,'executive':store.executive_summary(),'questions':store.questions(),'operator':operator.status(),'objectives':operator.list_objectives(),'activity':operator.list_activity(60),'approval':operator.pending_approval(),'tasks':list_tasks().get('tasks',[]),'inventory':store.inventory(),'orders':store.orders(),'cash':store.cash_transactions(),'purchases':store.purchase_orders(),'marketing':store.marketing(),'knowledge':store.knowledge(),'notes':store.notes(),'integrations':store.integrations(),'upgrades':store.dashboard_upgrades()}
+ owner(req);return {'ok':True,'version':VERSION,'release':RELEASE,'executive':store.executive_summary(),'questions':store.questions(),'operator':operator.status(),'objectives':operator.list_objectives(),'activity':operator.list_activity(60),'approval':operator.pending_approval(),'tasks':list_tasks().get('tasks',[]),'inventory':store.inventory(),'orders':store.orders(),'cash':store.cash_transactions(),'purchases':store.purchase_orders(),'marketing':store.marketing(),'knowledge':store.knowledge(),'attachments':attachments.list_all(),'notes':store.notes(),'integrations':store.integrations(),'upgrades':store.dashboard_upgrades()}
 @app.post('/api/objectives')
 def create_objective(x:Objective,req:Request):owner(req);return {'ok':True,'objective_id':operator.create_objective(x.objective,max(1,min(100,x.priority)))}
 @app.get('/api/objectives/{oid}')
@@ -71,6 +71,21 @@ async def knowledge_add(req:Request,file:UploadFile=File(...),category:str=Form(
  owner(req);data=await file.read()
  if len(data)>25*1024*1024:raise HTTPException(413,'File too large')
  return {'ok':True,'file':store.save_knowledge(file.filename or 'upload',data,category,tags)}
+@app.post('/api/attachments')
+async def attachment_add(req:Request,files:list[UploadFile]=File(...),context_type:str=Form('general'),context_id:str=Form(''),caption:str=Form('')):
+ owner(req);saved=[]
+ for f in files:
+  data=await f.read()
+  if len(data)>50*1024*1024:raise HTTPException(413,f'{f.filename}: file exceeds 50 MB')
+  saved.append(attachments.save(f.filename or 'upload',data,f.content_type or '',context_type,context_id,caption))
+ return {'ok':True,'attachments':saved}
+@app.get('/api/attachments/{aid}/content')
+def attachment_content(aid:int,req:Request):
+ owner(req);a=attachments.get(aid)
+ if not a or not Path(a['path']).exists():raise HTTPException(404,'Attachment not found')
+ return FileResponse(a['path'],media_type=a['mime_type'],filename=a['original_name'],content_disposition_type='inline' if attachments.is_image(a) else 'attachment')
+@app.delete('/api/attachments/{aid}')
+def attachment_delete(aid:int,req:Request):owner(req);return {'ok':attachments.delete(aid)}
 @app.post('/api/notes')
 def note_add(x:Note,req:Request):owner(req);return {'ok':True,'note':store.add_note(x.title,x.note,x.category)}
 @app.post('/api/dashboard-upgrades')
@@ -83,4 +98,13 @@ def home():
  page=PAGE.replace('BUSINESS-OS-241',RELEASE)
  old="setInterval(()=>{if(!$('app').classList.contains('hidden'))load()},5000)"
  new="setInterval(()=>{const a=document.activeElement;const typing=a&&['INPUT','TEXTAREA','SELECT'].includes(a.tagName);if(!typing&&!$('app').classList.contains('hidden'))load()},5000)"
- return page.replace(old,new)
+ page=page.replace(old,new)
+ oldk='<section id="knowledge" class="card hidden"><h2>Knowledge & Business Memory</h2>'
+ uploader='''<section id="files" class="card hidden"><div class="sectionhead"><div><h2>Files & Pictures</h2><p class="muted">Upload business documents, spreadsheets, PDFs, photos, labels, product images, COAs and other files for Jarvis.</p></div></div><form id="attachForm" onsubmit="uploadAttachments(event)"><div class="forms"><input id="af" class="field" type="file" multiple required accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.rtf,.ppt,.pptx,.zip"><select id="actx"><option value="general">General</option><option value="question">Jarvis Question</option><option value="objective">Objective</option><option value="inventory">Inventory / Product</option><option value="supplier">Supplier</option><option value="order">Order</option><option value="marketing">Marketing</option><option value="finance">Finance</option></select><input id="acid" class="field" placeholder="Related ID or name (optional)"><input id="acap" class="field" placeholder="Tell Jarvis what this is"><button class="btn primary">Upload to Jarvis</button></div></form><div id="attachlist"></div></section>'''
+ page=page.replace(oldk,uploader+oldk)
+ page=page.replace('<button class="btn tab" onclick="tab(\'knowledge\',this)">Knowledge</button>','<button class="btn tab" onclick="tab(\'files\',this)">Files & Pictures</button><button class="btn tab" onclick="tab(\'knowledge\',this)">Knowledge</button>')
+ page=page.replace("['executive','sales','finance','inventory','purchasing','marketing','jarvis','knowledge','systems']","['executive','sales','finance','inventory','purchasing','marketing','jarvis','files','knowledge','systems']")
+ insert="""async function uploadAttachments(ev){ev.preventDefault();let f=new FormData();for(const x of $('af').files)f.append('files',x);f.append('context_type',$('actx').value);f.append('context_id',$('acid').value);f.append('caption',$('acap').value);note('Uploading files to Jarvis...');await req('/api/attachments',{method:'POST',body:f});ev.target.reset();note('Files saved to Jarvis.');load()}function renderAttachments(){if(!$('attachlist'))return;let aa=D.attachments||[];$('attachlist').innerHTML=aa.length?aa.map(a=>`<div class=\"event\"><div class=\"sectionhead\"><div><b>${esc(a.original_name)}</b><br><span class=\"muted\">${esc(a.context_type)}${a.context_id?' · '+esc(a.context_id):''} · ${(a.size_bytes/1024).toFixed(1)} KB</span><br>${a.caption?esc(a.caption):''}</div><div>${String(a.mime_type).startsWith('image/')?`<a class=\"btn\" target=\"_blank\" href=\"/api/attachments/${a.id}/content\">View Picture</a>`:`<a class=\"btn\" href=\"/api/attachments/${a.id}/content\">Open File</a>`}</div></div>${String(a.mime_type).startsWith('image/')?`<img src=\"/api/attachments/${a.id}/content\" style=\"max-width:220px;max-height:160px;margin-top:10px;border-radius:10px;border:1px solid #315779\">`:''}</div>`).join(''):'<p class=\"muted\">No files or pictures uploaded yet.</p>'}"""
+ page=page.replace('async function uploadKnowledge(ev)',insert+'async function uploadKnowledge(ev)')
+ page=page.replace("$('integrations').innerHTML=(D.integrations||[])","renderAttachments();$('integrations').innerHTML=(D.integrations||[])")
+ return page
