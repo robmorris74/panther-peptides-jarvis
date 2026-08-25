@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from . import operator,store
 from .ops import list_tasks,render_services
 from .ui import PAGE
-VERSION='3.2.0-business-os.241';RELEASE='BUSINESS-OS-241';DATA=Path(os.getenv('JARVIS3_DATA_DIR','/app/data'));DATA.mkdir(parents=True,exist_ok=True);SECRET_FILE=DATA/'jarvis3_session_secret'
+VERSION='3.2.1-business-os.242';RELEASE='BUSINESS-OS-242';DATA=Path(os.getenv('JARVIS3_DATA_DIR','/app/data'));DATA.mkdir(parents=True,exist_ok=True);SECRET_FILE=DATA/'jarvis3_session_secret'
 if SECRET_FILE.exists():SECRET=SECRET_FILE.read_text().strip().encode()
 else:SECRET=secrets.token_hex(48).encode();SECRET_FILE.write_text(SECRET.decode())
 COOKIE='jarvis3_owner';app=FastAPI(title='Panther Peptides - Jarvis Business OS',version=VERSION)
@@ -33,7 +33,7 @@ def startup():operator.start()
 @app.get('/health')
 def health():return {'ok':True,'service':'jarvis-business-os','version':VERSION,'release':RELEASE,'operator':operator.status()}
 @app.get('/version')
-def version():return {'version':VERSION,'release':RELEASE,'dashboard':'executive-business','jarvis_led':True}
+def version():return {'version':VERSION,'release':RELEASE,'dashboard':'executive-business','jarvis_led':True,'typing_fix':True}
 @app.get('/ready')
 def ready():return {'ok':bool(os.getenv('JARVIS_OWNER_PASSWORD') and os.getenv('OPENAI_API_KEY')),'version':VERSION,'release':RELEASE,'checks':{'owner_password':bool(os.getenv('JARVIS_OWNER_PASSWORD')),'openai':bool(os.getenv('OPENAI_API_KEY')),'render_key':bool(os.getenv('RENDER_API_KEY')),'github_token':bool(os.getenv('GITHUB_TOKEN')),'operator':operator.status()}}
 @app.post('/api/login')
@@ -79,4 +79,8 @@ def upgrade_add(x:Upgrade,req:Request):
 @app.get('/api/render/services')
 def services(req:Request):owner(req);return render_services()
 @app.get('/',response_class=HTMLResponse)
-def home():return PAGE
+def home():
+ page=PAGE.replace('BUSINESS-OS-241',RELEASE)
+ old="setInterval(()=>{if(!$('app').classList.contains('hidden'))load()},5000)"
+ new="setInterval(()=>{const a=document.activeElement;const typing=a&&['INPUT','TEXTAREA','SELECT'].includes(a.tagName);if(!typing&&!$('app').classList.contains('hidden'))load()},5000)"
+ return page.replace(old,new)
