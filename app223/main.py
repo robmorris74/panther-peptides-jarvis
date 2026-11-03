@@ -7,7 +7,7 @@ from .db import init_db,execute,one
 from .security import verify_password,make_session,require_owner,COOKIE,valid_session,SESSION_TTL,password_source
 from .agent import start,status,create_objective,wake,model_status,_model_call,pending_approval,decide_approval
 from .integrations import test_connections
-from .business import ensure_business_schema,inventory_rows,dashboard_summary,import_legacy,save_document,review_document,release_inventory,set_inventory_status,events
+from .business import ensure_business_schema,inventory_rows,dashboard_summary,import_legacy,save_document,review_document,release_inventory,set_inventory_status,events,record_document_receipt
 from .knowledge import ensure_knowledge_schema,save as save_knowledge,list_items as knowledge_items,context as knowledge_context,stats as knowledge_stats,delete_item as delete_knowledge
 from .authority import ensure_authority_schema,status as authority_status,spend_ledger
 from .ramp import status as ramp_status,list_virtual_cards
@@ -21,6 +21,10 @@ class ChatReq(BaseModel):message:str;history:list[ChatTurn]=Field(default_factor
 class TTSReq(BaseModel):text:str
 class ReviewReq(BaseModel):approved:bool
 class StatusReq(BaseModel):status:str
+class DocumentReceiptReq(BaseModel):
+    kind:str
+    received:bool
+    reference:str=Field(default='',max_length=500)
 class ApprovalReq(BaseModel):approved:bool
 @app.on_event('startup')
 def boot():init_db();ensure_business_schema();ensure_knowledge_schema();ensure_authority_schema();start()
@@ -136,6 +140,13 @@ def business_dashboard(req:Request):
 def business_inventory(req:Request):require_owner(req);return {'ok':True,'items':inventory_rows(),'summary':dashboard_summary()}
 @app.post('/business/inventory/import-legacy')
 def business_import(req:Request):require_owner(req);return import_legacy()
+@app.post('/business/inventory/{inventory_id}/document-receipt')
+def business_document_receipt(inventory_id:int,v:DocumentReceiptReq,req:Request):
+    require_owner(req)
+    if req.headers.get('origin') and req.headers['origin']!=str(req.base_url).rstrip('/'):
+        raise HTTPException(403,'Same-origin request required')
+    try:return record_document_receipt(inventory_id,v.kind,v.received,v.reference)
+    except ValueError as e:raise HTTPException(400,str(e))
 @app.post('/business/inventory/{inventory_id}/documents')
 async def business_upload(inventory_id:int,req:Request,file:UploadFile=File(...),kind:str=Form('coa')):
     require_owner(req)

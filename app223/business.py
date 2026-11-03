@@ -46,6 +46,15 @@ def ensure_business_schema():
       severity TEXT NOT NULL DEFAULT 'info',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )''')
+    execute("""CREATE TABLE IF NOT EXISTS pp_document_receipts(
+      inventory_id INTEGER NOT NULL REFERENCES pp_inventory(id),
+      kind TEXT NOT NULL,
+      received INTEGER NOT NULL DEFAULT 0,
+      reference TEXT NOT NULL DEFAULT '',
+      recorded_by TEXT NOT NULL DEFAULT 'owner',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(inventory_id,kind)
+    )""")
     execute('CREATE INDEX IF NOT EXISTS idx_pp_inventory_status ON pp_inventory(status,product,lot_code)')
     execute('CREATE INDEX IF NOT EXISTS idx_pp_inventory_docs_inventory ON pp_inventory_documents(inventory_id,id DESC)')
 
@@ -84,6 +93,7 @@ def discover_legacy_inventory():
 def inventory_rows():
     ensure_business_schema();rows=execute('SELECT * FROM pp_inventory ORDER BY product,lot_code,id',fetch=True)
     for r in rows:
+        r['receipts']=execute('SELECT kind,received,reference,recorded_by,updated_at FROM pp_document_receipts WHERE inventory_id=? ORDER BY kind',(r['id'],),True)
         r['legacy']=False;r['documents']=execute('SELECT id,kind,original_name,mime_type,size_bytes,review_status,created_at FROM pp_inventory_documents WHERE inventory_id=? ORDER BY id DESC',(r['id'],),True)
     return rows if rows else discover_legacy_inventory()
 
@@ -128,3 +138,31 @@ def release_inventory(inventory_id:int):
 
 def events():
     ensure_business_schema();return execute('SELECT * FROM pp_business_events ORDER BY id DESC LIMIT 100',fetch=True)
+
+
+DOCUMENT_RECEIPT_KINDS = ('supplier_document', 'coa', 'independent_lab')
+
+def record_document_receipt(inventory_id:int, kind:str, received:bool, reference:str):
+    """Owner attestation of receipt only; never review, release or quality approval."""
+    ensure_business_schema()
+    if kind not in DOCUMENT_RECEIPT_KINDS:
+        raise ValueError('Choose supplier document, COA, or independent lab results')
+    reference=reference.strip()
+    if len(reference)>500:raise ValueError('Document reference must be 500 characters or fewer')
+    if received and not reference:raise ValueError('Enter a document, supplier, or lab report reference')
+    with connect() as con:
+        con.execute('BEGIN IMMEDIATE')
+        try:
+            if not con.execute('SELECT id FROM pp_inventory WHERE id=?',(inventory_id,)).fetchone():
+                raise ValueError('Inventory lot not found. Import legacy inventory first.')
+            con.execute("""INSERT INTO pp_document_receipts(inventory_id,kind,received,reference)
+                VALUES(?,?,?,?) ON CONFLICT(inventory_id,kind) DO UPDATE SET
+                received=excluded.received,reference=excluded.reference,recorded_by='owner',updated_at=CURRENT_TIMESTAMP""",
+                (inventory_id,kind,int(received),reference))
+            con.execute('INSERT INTO pp_business_events(category,title,detail) VALUES(?,?,?)',
+                ('documentation','Document receipt recorded',
+                 f'Owner recorded lot #{inventory_id}: {kind}, received={received}, reference={reference}. Receipt only; no review or release.'))
+            con.commit()
+        except Exception:
+            con.rollback();raise
+    return {'ok':True,'received':received,'kind':kind,'review_status':'not_verified','availability_changed':False}
