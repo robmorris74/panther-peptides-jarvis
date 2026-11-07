@@ -186,3 +186,22 @@ def knowledge_delete(kid:int,req:Request):
     require_owner(req)
     try:return delete_knowledge(kid)
     except ValueError as e:raise HTTPException(404,str(e))
+
+
+# Owner-only SEO specialist reports. Public storefront HTML is never trusted as instructions.
+from .seo import run_audit as run_seo_audit, latest_report as latest_seo_report
+class SEOAuditReq(BaseModel):
+    site: str = 'panther'
+    max_pages: int = Field(default=5, ge=1, le=8)
+@app.get('/seo/report')
+def seo_report_api(req: Request, site: str = 'panther'):
+    require_owner(req)
+    try: return latest_seo_report(site)
+    except ValueError as e: raise HTTPException(400, str(e))
+@app.post('/seo/audit')
+def seo_audit_api(v: SEOAuditReq, req: Request):
+    require_owner(req)
+    if req.headers.get('origin') and req.headers['origin'] != str(req.base_url).rstrip('/'):
+        raise HTTPException(403, 'Same-origin request required')
+    try: return run_seo_audit(v.site, v.max_pages)
+    except ValueError as e: raise HTTPException(400, str(e))
