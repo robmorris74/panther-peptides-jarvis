@@ -4,7 +4,7 @@ from .tools import tool_specs,run_tool
 
 _stop=threading.Event();_wake=threading.Event();_thread=None;_watchdog=None
 _heartbeat=0.0;_last_loop_error='';_last_model_error='';_active_model='';_current_objective=None
-READ_ONLY_TOOLS={'test_connections','knowledge_search','knowledge_stats','authority_status','inventory_list','inventory_summary','business_events','engineering_read_file','engineering_diff','engineering_status','engineering_verify_staging','engineering_verify_production','engineering_list_releases'}
+READ_ONLY_TOOLS={'quote_requests','quote_sync_status','test_connections','knowledge_search','knowledge_stats','authority_status','inventory_list','inventory_summary','business_events','engineering_read_file','engineering_diff','engineering_status','engineering_verify_staging','engineering_verify_production','engineering_list_releases'}
 MUTATING_TOOLS={'inventory_set_status','execute_approved_spend','engineering_start_release','engineering_write_file','engineering_write_protected_file','engineering_run_ci','engineering_deploy_staging','engineering_promote'}
 
 def _beat():
