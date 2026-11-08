@@ -201,3 +201,20 @@ def sync_business_quotes(req:Request):
     return quote_intake.sync_once()
 @app.on_event('shutdown')
 def stop_quote_intake(): quote_intake.stop()
+# Owner-only SEO specialist reports. Public storefront HTML is never trusted as instructions.
+from .seo import run_audit as run_seo_audit, latest_report as latest_seo_report
+class SEOAuditReq(BaseModel):
+    site: str = 'panther'
+    max_pages: int = Field(default=5, ge=1, le=8)
+@app.get('/seo/report')
+def seo_report_api(req: Request, site: str = 'panther', report_id: int | None = None):
+    require_owner(req)
+    try: return latest_seo_report(site, report_id)
+    except ValueError as e: raise HTTPException(400, str(e))
+@app.post('/seo/audit')
+def seo_audit_api(v: SEOAuditReq, req: Request):
+    require_owner(req)
+    if req.headers.get('origin') and req.headers['origin'] != str(req.base_url).rstrip('/'):
+        raise HTTPException(403, 'Same-origin request required')
+    try: return run_seo_audit(v.site, v.max_pages)
+    except ValueError as e: raise HTTPException(400, str(e))

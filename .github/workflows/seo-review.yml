@@ -1,0 +1,28 @@
+name: SEO and quote integration review
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [jarvis/seo-operational]
+permissions:
+  contents: read
+jobs:
+  focused-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      JARVIS_ENV: test
+      JARVIS_DATA_DIR: /tmp/jarvis-seo-test
+      DATABASE_PATH: /tmp/jarvis-seo-test/operator.db
+      JARVIS_SESSION_SECRET_FILE: /tmp/jarvis-seo-test/session_secret
+      JARVIS_COOKIE_SECURE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m compileall -q app223 jarvis_boot.py scripts/seo_smoke.py
+      - run: python -c "from app223.main import app, VER; assert VER == '230.0.0'; assert app.title == 'Jarvis'"
+      - run: python -m pytest -q tests/test_seo_agent.py tests/test_seo_operational.py tests/test_quote_intake.py tests/test_document_receipts.py
