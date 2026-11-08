@@ -1,0 +1,19 @@
+{
+  "reports": [
+    {
+      "site": "panther",
+      "report_id": 1,
+      "owner_authenticated_http_readback": true,
+      "state": "completed"
+    },
+    {
+      "site": "shopify",
+      "report_id": 2,
+      "owner_authenticated_http_readback": true,
+      "state": "blocked"
+    }
+  ],
+  "anonymous_access_http_status": 401,
+  "fresh_process_readback": "Verified by scripts/seo_smoke.py for each live report",
+  "environment": "Isolated local SQLite and FastAPI test transport; no production service activated"
+}

@@ -11,6 +11,7 @@ from .business import ensure_business_schema,inventory_rows,dashboard_summary,im
 from .knowledge import ensure_knowledge_schema,save as save_knowledge,list_items as knowledge_items,context as knowledge_context,stats as knowledge_stats,delete_item as delete_knowledge
 from .authority import ensure_authority_schema,status as authority_status,spend_ledger
 from .ramp import status as ramp_status,list_virtual_cards
+from . import quotes as quote_intake
 from .ui_nav import HTML
 from .business_ui import BUSINESS_HTML
 VER='230.0.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/app/data'));app=FastAPI(title='Jarvis',version=VER)
@@ -27,7 +28,7 @@ class DocumentReceiptReq(BaseModel):
     reference:str=Field(default='',max_length=500)
 class ApprovalReq(BaseModel):approved:bool
 @app.on_event('startup')
-def boot():init_db();ensure_business_schema();ensure_knowledge_schema();ensure_authority_schema();start()
+def boot():init_db();ensure_business_schema();ensure_knowledge_schema();ensure_authority_schema();start();quote_intake.start()
 @app.middleware('http')
 async def headers(req,call_next):
     try:r=await call_next(req)
@@ -186,3 +187,34 @@ def knowledge_delete(kid:int,req:Request):
     require_owner(req)
     try:return delete_knowledge(kid)
     except ValueError as e:raise HTTPException(404,str(e))
+
+
+@app.get('/business/quotes')
+def business_quotes(req:Request):
+    require_owner(req)
+    return {'ok':True,'items':quote_intake.list_quotes(),'status':quote_intake.status()}
+@app.post('/business/quotes/sync')
+def sync_business_quotes(req:Request):
+    require_owner(req)
+    if req.headers.get('origin') and req.headers['origin']!=str(req.base_url).rstrip('/'):
+        raise HTTPException(403,'Same-origin request required')
+    return quote_intake.sync_once()
+@app.on_event('shutdown')
+def stop_quote_intake(): quote_intake.stop()
+# Owner-only SEO specialist reports. Public storefront HTML is never trusted as instructions.
+from .seo import run_audit as run_seo_audit, latest_report as latest_seo_report
+class SEOAuditReq(BaseModel):
+    site: str = 'panther'
+    max_pages: int = Field(default=5, ge=1, le=8)
+@app.get('/seo/report')
+def seo_report_api(req: Request, site: str = 'panther', report_id: int | None = None):
+    require_owner(req)
+    try: return latest_seo_report(site, report_id)
+    except ValueError as e: raise HTTPException(400, str(e))
+@app.post('/seo/audit')
+def seo_audit_api(v: SEOAuditReq, req: Request):
+    require_owner(req)
+    if req.headers.get('origin') and req.headers['origin'] != str(req.base_url).rstrip('/'):
+        raise HTTPException(403, 'Same-origin request required')
+    try: return run_seo_audit(v.site, v.max_pages)
+    except ValueError as e: raise HTTPException(400, str(e))
