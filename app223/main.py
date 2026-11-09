@@ -13,6 +13,7 @@ from .authority import ensure_authority_schema,status as authority_status,spend_
 from .ramp import status as ramp_status,list_virtual_cards
 from .ui_nav import HTML
 from .business_ui import BUSINESS_HTML
+from . import seo_scheduler
 VER='230.0.0';DATA=Path(os.getenv('JARVIS_DATA_DIR','/app/data'));app=FastAPI(title='Jarvis',version=VER)
 class Login(BaseModel):password:str
 class Cmd(BaseModel):text:str;request_id:str|None=None
@@ -27,14 +28,14 @@ class DocumentReceiptReq(BaseModel):
     reference:str=Field(default='',max_length=500)
 class ApprovalReq(BaseModel):approved:bool
 @app.on_event('startup')
-def boot():init_db();ensure_business_schema();ensure_knowledge_schema();ensure_authority_schema();start()
+def boot():init_db();ensure_business_schema();ensure_knowledge_schema();ensure_authority_schema();start();seo_scheduler.start()
 @app.middleware('http')
 async def headers(req,call_next):
     try:r=await call_next(req)
     except Exception as e:r=JSONResponse({'ok':False,'error':'internal_error','detail':str(e)[:1000],'version':VER},status_code=500)
     r.headers['X-Jarvis-Version']=VER;r.headers['Cache-Control']='no-store';r.headers['X-Content-Type-Options']='nosniff';r.headers['Referrer-Policy']='same-origin';r.headers['X-Frame-Options']='DENY';return r
 @app.get('/health')
-def health():return {'ok':True,'version':VER}
+def health():return {'ok':True,'version':VER,'seo_service':seo_scheduler.health()}
 @app.get('/health/ready')
 def ready():
     s=status();persistent=DATA.exists() and os.access(DATA,os.W_OK);ok=s['database_ok'] and persistent and s['worker_alive'] and s['watchdog_alive'];return JSONResponse({'ok':ok,'version':VER,'persistent':persistent,**s},status_code=200 if ok else 503)
@@ -186,3 +187,26 @@ def knowledge_delete(kid:int,req:Request):
     require_owner(req)
     try:return delete_knowledge(kid)
     except ValueError as e:raise HTTPException(404,str(e))
+
+
+# Owner-only SEO specialist reports. Public storefront HTML is never trusted as instructions.
+from .seo import run_audit as run_seo_audit, latest_report as latest_seo_report
+class SEOAuditReq(BaseModel):
+    site: str = 'panther'
+    max_pages: int = Field(default=5, ge=1, le=8)
+@app.get('/seo/report')
+def seo_report_api(req: Request, site: str = 'panther'):
+    require_owner(req)
+    try: return latest_seo_report(site)
+    except ValueError as e: raise HTTPException(400, str(e))
+@app.get('/seo/scheduler')
+def seo_scheduler_api(req: Request):
+    require_owner(req)
+    return seo_scheduler.status()
+@app.post('/seo/audit')
+def seo_audit_api(v: SEOAuditReq, req: Request):
+    require_owner(req)
+    if req.headers.get('origin') and req.headers['origin'] != str(req.base_url).rstrip('/'):
+        raise HTTPException(403, 'Same-origin request required')
+    try: return run_seo_audit(v.site, v.max_pages)
+    except ValueError as e: raise HTTPException(400, str(e))
